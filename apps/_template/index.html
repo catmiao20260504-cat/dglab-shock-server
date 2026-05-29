@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>应用名称 · DG-LAB</title>
+<style>
+  /* 在这里写你的样式 */
+  body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; }
+  input { background: #222; border: 1px solid #444; color: #eee; padding: 6px 10px; border-radius: 4px; }
+  button { padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- ── 服务端连接（所有 app 必须有这一块） ── -->
+<div id="conn-bar" style="margin-bottom:20px">
+  <input id="base-url" value="http://localhost:5679" style="width:220px">
+  <button onclick="checkConn()">连接测试</button>
+  <span id="conn-status" style="margin-left:10px;font-size:12px;color:#888">未连接</span>
+</div>
+
+<!-- ── 你的应用内容放这里 ── -->
+<div id="app">
+  <h1>应用名称</h1>
+  <button onclick="triggerShock()">触发电击测试</button>
+</div>
+
+<script>
+// ─── DG-Lab 接口封装（复制到你的 app，保持不变） ─────────────────────────
+function getBase() {
+  return document.getElementById('base-url').value.replace(/\/+$/, '');
+}
+
+async function cmd(message) {
+  const r = await fetch(`${getBase()}/cmd`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+  return r.json();
+}
+
+async function checkConn() {
+  const el = document.getElementById('conn-status');
+  try {
+    const data = await fetch(`${getBase()}/status`, { signal: AbortSignal.timeout(3000) })
+      .then(r => r.json());
+    const bound = Object.keys(data.bindings || {}).length > 0;
+    el.textContent = bound ? '✓ 已绑定' : '⚠ 未绑定（请让 App 扫码）';
+    el.style.color = bound ? '#2dffb0' : '#f0e040';
+  } catch {
+    el.textContent = '✕ 连接失败';
+    el.style.color = '#ff3b5c';
+  }
+}
+
+// ─── 你的应用逻辑写在这里 ────────────────────────────────────────────────
+async function triggerShock() {
+  // 1. 设置强度（根据你的应用调整 a/b 值）
+  await cmd('strength-20+10+3+3');
+
+  // 2. 下发波形
+  const frame = '1E9082B46464646464646464646464640000FF00';
+  await cmd(`pulse-a:["${frame}","${frame}"]`);
+  await cmd(`pulse-b:["${frame}","${frame}"]`);
+
+  // 3. 1.5 秒后归零
+  setTimeout(async () => {
+    await cmd('strength-0+0+3+3');
+    await cmd('clear-a');
+    await cmd('clear-b');
+  }, 1500);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DG-LAB 测试控制台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0c10;
+    --surface:  #111318;
+    --border:   #1e2330;
+    --accent:   #e8ff47;
+    --red:      #ff3b5c;
+    --blue:     #38d0f5;
+    --green:    #2dffb0;
+    --muted:    #4a5268;
+    --text:     #c8d0e0;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Rajdhani', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+  }
+  .logo span { color: var(--muted); }
+
+  #conn-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+    animation: none;
+  }
+  .dot.online { background: var(--green); animation: pulse 1.6s infinite; }
+  .dot.bound  { background: var(--accent); animation: pulse 1.2s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+  }
+
+  /* ── layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    grid-template-rows: auto;
+    gap: 0;
+    height: calc(100vh - 53px);
+  }
+
+  .sidebar {
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .main { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── panels ── */
+  .panel {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .panel-header .icon { font-size: 14px; }
+  .panel-body { padding: 14px; }
+
+  /* ── sidebar panels fill height ── */
+  .sidebar .panel {
+    border-radius: 0;
+    border-left: none; border-right: none; border-top: none;
+    flex-shrink: 0;
+  }
+  .sidebar .panel:first-child { border-top: 1px solid var(--border); }
+
+  /* ── connection config ── */
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 5px;
+    letter-spacing: 0.1em;
+  }
+  .field input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 3px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+
+  /* ── buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    background: transparent;
+    transition: background 0.15s, color 0.15s, transform 0.1s;
+    user-select: none;
+  }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-accent { color: var(--accent); }
+  .btn-accent:hover { background: var(--accent); color: var(--bg); }
+  .btn-red    { color: var(--red); }
+  .btn-red:hover   { background: var(--red); color: #fff; }
+  .btn-blue   { color: var(--blue); }
+  .btn-blue:hover  { background: var(--blue); color: var(--bg); }
+  .btn-green  { color: var(--green); }
+  .btn-green:hover { background: var(--green); color: var(--bg); }
+
+  .btn-full { width: 100%; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── channel card ── */
+  .channels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .ch-card {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+  .ch-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .ch-card.ch-a::before { background: var(--blue); }
+  .ch-card.ch-b::before { background: var(--green); }
+
+  .ch-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    margin-bottom: 4px;
+  }
+  .ch-value {
+    font-family: var(--mono);
+    font-size: 36px;
+    font-weight: bold;
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .ch-card.ch-a .ch-value { color: var(--blue); }
+  .ch-card.ch-b .ch-value { color: var(--green); }
+
+  .ch-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .ch-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .ch-a .ch-slider::-webkit-slider-thumb { background: var(--blue); }
+  .ch-b .ch-slider::-webkit-slider-thumb { background: var(--green); }
+
+  .ch-btns { display: flex; gap: 6px; }
+  .ch-btns .btn { flex: 1; font-size: 16px; padding: 6px; }
+
+  /* ── waveform presets ── */
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .preset-btn {
+    padding: 10px 6px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .preset-btn:hover { border-color: var(--accent); background: rgba(232,255,71,0.06); }
+  .preset-btn.active { border-color: var(--accent); color: var(--accent); }
+  .preset-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ── test sequences ── */
+  .seq-list { display: flex; flex-direction: column; gap: 8px; }
+  .seq-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .seq-item:hover { border-color: var(--blue); }
+  .seq-item.running { border-color: var(--accent); animation: border-pulse 0.8s infinite; }
+  @keyframes border-pulse {
+    0%, 100% { border-color: var(--accent); }
+    50%       { border-color: transparent; }
+  }
+  .seq-icon { font-size: 18px; }
+  .seq-info { flex: 1; }
+  .seq-name { font-weight: 600; font-size: 14px; }
+  .seq-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .seq-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── log ── */
+  #log-panel { flex: 1; min-height: 200px; }
+  #log-box {
+    height: 260px;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .log-entry { display: flex; gap: 10px; }
+  .log-ts { color: var(--muted); flex-shrink: 0; }
+  .log-msg { word-break: break-all; }
+  .log-send { color: var(--accent); }
+  .log-recv { color: var(--blue); }
+  .log-err  { color: var(--red); }
+  .log-info { color: var(--text); }
+  .log-ok   { color: var(--green); }
+
+  /* ── raw cmd ── */
+  .raw-row { display: flex; gap: 8px; }
+  .raw-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 3px;
+    outline: none;
+  }
+  .raw-row input:focus { border-color: var(--accent); }
+
+  /* ── badge ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+  .badge-ok  { background: rgba(45,255,176,0.15); color: var(--green); }
+  .badge-err { background: rgba(255,59,92,0.15);  color: var(--red); }
+  .badge-wait{ background: rgba(56,208,245,0.15); color: var(--blue); }
+
+  /* ── scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── section title ── */
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  @media (max-width: 700px) {
+    .layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .channels { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DG<span>-</span>LAB <span>//</span> TEST_CONSOLE</div>
+  <div id="conn-status">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">未连接</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ═══ 侧边栏 ═══ -->
+  <aside class="sidebar">
+
+    <!-- 连接配置 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">⚡</span>连接配置</div>
+      <div class="panel-body">
+        <div class="field">
+          <label>WebSocket 服务地址</label>
+          <input id="ws-url" type="text" value="ws://localhost:5678" placeholder="ws://IP:5678">
+        </div>
+        <div class="field">
+          <label>HTTP API 地址</label>
+          <input id="http-url" type="text" value="http://localhost:5679" placeholder="http://IP:5679">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-accent btn-full" onclick="connect()">连接服务端</button>
+        </div>
+        <div style="margin-top:8px;">
+          <div id="bind-info" class="badge badge-wait">等待 App 扫码</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设备状态 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">📊</span>设备状态</div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:var(--mono);font-size:12px;">
+          <div>
+            <div style="color:var(--muted);font-size:10px;margin-bottom:3px;">A 通道</div>
+            <div id="state-a" style="color:var(--blue);font-size:22px;">--</div>
+          </div>
+          <div>
+            <div style="color:var(--muted);font-size:10px;margin-bottom:3px;">B 通道</div>
+            <div id="state-b" style="color:var(--green);font-size:22px;">--</div>
+          </div>
+          <div>
+            <div style="color:var(--muted);font-size:10px;margin-bottom:3px;">A 上限</div>
+            <div id="state-maxA" style="font-size:14px;">--</div>
+          </div>
+          <div>
+            <div style="color:var(--muted);font-size:10px;margin-bottom:3px;">B 上限</div>
+            <div id="state-maxB" style="font-size:14px;">--</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:10px;color:var(--muted);font-family:var(--mono);" id="state-updated">--</div>
+      </div>
+    </div>
+
+    <!-- 紧急停止 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">🛑</span>安全控制</div>
+      <div class="panel-body">
+        <button class="btn btn-red btn-full" onclick="emergencyStop()" style="font-size:16px;padding:12px;">
+          ⚠ 紧急停止
+        </button>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted);text-align:center;">
+          将 A/B 通道强度归零
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ═══ 主区域 ═══ -->
+  <main class="main">
+
+    <!-- 强度控制 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">🎛</span>通道强度控制</div>
+      <div class="panel-body">
+        <div class="channels">
+          <!-- A 通道 -->
+          <div class="ch-card ch-a">
+            <div class="ch-label">CH_A</div>
+            <div class="ch-value" id="val-a">0</div>
+            <input type="range" min="0" max="200" value="0" class="ch-slider" id="slider-a"
+              oninput="document.getElementById('val-a').textContent=this.value">
+            <div class="ch-btns">
+              <button class="btn btn-blue btn-sm" onclick="changeStrength('a', -10)">−10</button>
+              <button class="btn btn-blue btn-sm" onclick="changeStrength('a', -1)">−1</button>
+              <button class="btn btn-blue btn-sm" onclick="changeStrength('a', +1)">+1</button>
+              <button class="btn btn-blue btn-sm" onclick="changeStrength('a', +10)">+10</button>
+            </div>
+            <div style="margin-top:8px;">
+              <button class="btn btn-blue btn-sm btn-full" onclick="sendStrengthChannel('a')">发送 A 强度</button>
+            </div>
+          </div>
+          <!-- B 通道 -->
+          <div class="ch-card ch-b">
+            <div class="ch-label">CH_B</div>
+            <div class="ch-value" id="val-b">0</div>
+            <input type="range" min="0" max="200" value="0" class="ch-slider" id="slider-b"
+              oninput="document.getElementById('val-b').textContent=this.value">
+            <div class="ch-btns">
+              <button class="btn btn-green btn-sm" onclick="changeStrength('b', -10)">−10</button>
+              <button class="btn btn-green btn-sm" onclick="changeStrength('b', -1)">−1</button>
+              <button class="btn btn-green btn-sm" onclick="changeStrength('b', +1)">+1</button>
+              <button class="btn btn-green btn-sm" onclick="changeStrength('b', +10)">+10</button>
+            </div>
+            <div style="margin-top:8px;">
+              <button class="btn btn-green btn-sm btn-full" onclick="sendStrengthChannel('b')">发送 B 强度</button>
+            </div>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn btn-accent" onclick="sendBothStrength()">同步发送 A+B</button>
+          <button class="btn btn-blue" onclick="sendStrengthOp('a', 1, 5)">A+5</button>
+          <button class="btn btn-blue" onclick="sendStrengthOp('a', 2, 5)">A−5</button>
+          <button class="btn btn-green" onclick="sendStrengthOp('b', 1, 5)">B+5</button>
+          <button class="btn btn-green" onclick="sendStrengthOp('b', 2, 5)">B−5</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 波形预设 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">〰</span>波形预设</div>
+      <div class="panel-body">
+        <div class="section-title" style="margin-bottom:8px;">通道选择</div>
+        <div class="btn-row" style="margin-bottom:12px;">
+          <button class="btn btn-blue btn-sm" id="wave-ch-a" onclick="selectWaveCh('a')">A 通道</button>
+          <button class="btn btn-green btn-sm" id="wave-ch-b" onclick="selectWaveCh('b')">B 通道</button>
+          <button class="btn btn-accent btn-sm" id="wave-ch-ab" onclick="selectWaveCh('ab')">A+B 双通道</button>
+        </div>
+        <div class="preset-grid" id="preset-grid"></div>
+        <div style="margin-top:12px;" class="btn-row">
+          <button class="btn btn-red btn-sm" onclick="sendClearWave()">清除波形</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 测试序列 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">🧪</span>测试序列</div>
+      <div class="panel-body">
+        <div class="seq-list" id="seq-list"></div>
+      </div>
+    </div>
+
+    <!-- 原始指令 -->
+    <div class="panel">
+      <div class="panel-header"><span class="icon">💻</span>原始指令</div>
+      <div class="panel-body">
+        <div class="raw-row">
+          <input id="raw-cmd" type="text" placeholder='message 字段内容，例如: strength-1+0+0' onkeydown="if(event.key==='Enter')sendRaw()">
+          <button class="btn btn-accent" onclick="sendRaw()">发送</button>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted);">
+          快捷: strength-A+B+opA+opB&nbsp;|&nbsp;pulse-a:[hex,hex,...]&nbsp;|&nbsp;clear-a
+        </div>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="panel" id="log-panel">
+      <div class="panel-header">
+        <span class="icon">📋</span>消息日志
+        <div style="margin-left:auto;" class="btn-row">
+          <button class="btn btn-sm" style="color:var(--muted);border-color:var(--border);" onclick="clearLog()">清空</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div id="log-box"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─── 状态 ─────────────────────────────────────────────────────────────────────
+let ws = null;
+let clientId = null;
+let targetId = null;   // App 的 clientId（绑定后才有）
+let isBound = false;
+let waveCh = 'a';      // 当前波形通道选择
+let activePreset = null;
+
+const WAVEFORMS = [
+  { name: '连续',   desc: '持续稳定输出', hex: () => repeat('1E9082B46464646464646464646464640000FF00') },
+  { name: '脉冲',   desc: '短促节奏感',   hex: () => repeat('14508000000000000000000000000000FFFFFF00') },
+  { name: '呼吸',   desc: '渐强渐弱',     hex: () => breathHex() },
+  { name: '波浪',   desc: '周期起伏',     hex: () => waveHex() },
+  { name: '随机',   desc: '随机强度',     hex: () => randomHex() },
+  { name: '爬升',   desc: '强度递增',     hex: () => rampHex() },
+];
+
+function repeat(h) { return [h, h, h, h]; }
+
+function breathHex() {
+  const frames = [];
+  for (let i = 0; i < 4; i++) {
+    const v = Math.round(20 + i * 20).toString(16).padStart(2, '0').toUpperCase();
+    frames.push(`${v}5082B4${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}0000FF00`);
+  }
+  return frames;
+}
+
+function waveHex() {
+  const vals = [10, 30, 50, 30];
+  return vals.map(v => {
+    const h = v.toString(16).padStart(2, '0').toUpperCase();
+    return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+  });
+}
+
+function randomHex() {
+  return Array.from({length: 4}, () => {
+    const v = Math.floor(Math.random() * 40 + 10).toString(16).padStart(2, '0').toUpperCase();
+    return `${v}5082B4${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}${v}0000FF00`;
+  });
+}
+
+function rampHex() {
+  return [10, 20, 35, 55].map(v => {
+    const h = v.toString(16).padStart(2, '0').toUpperCase();
+    return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+  });
+}
+
+// ─── 测试序列 ─────────────────────────────────────────────────────────────────
+const SEQUENCES = [
+  {
+    id: 'ping',
+    icon: '🔗',
+    name: '连通性测试',
+    desc: '发送 heartbeat 确认链路',
+    run: async () => {
+      sendWS({ type: 'heartbeat', clientId, targetId: targetId || '', message: '' });
+      log('info', '[测试] 已发送 heartbeat');
+    }
+  },
+  {
+    id: 'strength_ramp',
+    icon: '📈',
+    name: 'A通道强度爬升',
+    desc: '0→30 每步 +5，间隔 500ms',
+    run: async () => {
+      for (let s = 0; s <= 30; s += 5) {
+        sendStrengthAbs(s, null);
+        log('send', `[爬升] A 强度 = ${s}`);
+        await sleep(500);
+      }
+      log('ok', '[爬升] 完成');
+    }
+  },
+  {
+    id: 'strength_ab',
+    icon: '🔀',
+    name: 'A/B 交替测试',
+    desc: 'A、B 通道交替强度 10/20',
+    run: async () => {
+      for (let i = 0; i < 4; i++) {
+        const a = i % 2 === 0 ? 20 : 5;
+        const b = i % 2 === 0 ? 5 : 20;
+        sendStrengthAbs(a, b);
+        log('send', `[交替] A=${a} B=${b}`);
+        await sleep(800);
+      }
+      sendStrengthAbs(0, 0);
+      log('ok', '[交替] 完成，已归零');
+    }
+  },
+  {
+    id: 'waveform_cycle',
+    icon: '〰',
+    name: '波形循环测试',
+    desc: '依次发送所有预设波形',
+    run: async () => {
+      for (const wf of WAVEFORMS) {
+        const frames = wf.hex();
+        sendPulse(waveCh, frames);
+        log('send', `[波形] 发送: ${wf.name}`);
+        await sleep(1200);
+      }
+      sendClearWave();
+      log('ok', '[波形] 循环完成');
+    }
+  },
+  {
+    id: 'safety_stop',
+    icon: '🛑',
+    name: '紧急停止测试',
+    desc: '强度归零并清除所有波形',
+    run: async () => {
+      emergencyStop();
+      log('ok', '[安全] 紧急停止已执行');
+    }
+  },
+];
+
+// ─── WebSocket ──────────────────────────────────────────────────────────────
+function connect() {
+  const url = document.getElementById('ws-url').value.trim();
+  if (ws) { ws.close(); }
+  log('info', `连接 ${url}...`);
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setStatus('online', '已连接，等待绑定');
+    log('ok', 'WebSocket 已连接');
+    // 发送终端注册
+    ws.send(JSON.stringify({ type: 'bind', clientId: 'terminal', targetId: '', message: 'targetId' }));
+  };
+
+  ws.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { log('err', '无效 JSON: ' + e.data); return; }
+    handleMessage(data);
+  };
+
+  ws.onerror = () => {
+    setStatus('', '连接错误');
+    log('err', 'WebSocket 错误');
+  };
+
+  ws.onclose = () => {
+    setStatus('', '已断开');
+    isBound = false;
+    clientId = null;
+    targetId = null;
+    log('info', 'WebSocket 已关闭');
+    updateBindBadge();
+  };
+}
+
+function handleMessage(data) {
+  const { type, clientId: cid, targetId: tid, message } = data;
+  log('recv', `← [${type}] ${message}`);
+
+  if (type === 'bind' && !clientId) {
+    // 服务端分配 clientId
+    clientId = cid;
+    log('ok', `获得 clientId: ${clientId}`);
+  }
+
+  if (type === 'bind' && message === '200' && tid) {
+    // 绑定成功（App 已扫码）
+    targetId = tid;
+    isBound = true;
+    setStatus('bound', `已绑定 App`);
+    log('ok', `App 已绑定，targetId: ${targetId}`);
+    updateBindBadge();
+  }
+
+  if (type === 'msg' && message.startsWith('strength-')) {
+    parseAndUpdateState(message);
+  }
+
+  if (type === 'heartbeat' && message === '200') {
+    log('ok', '← heartbeat 200 OK');
+  }
+}
+
+function sendWS(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log('err', '未连接，无法发送'); return false;
+  }
+  ws.send(JSON.stringify(obj));
+  return true;
+}
+
+function sendMsg(message) {
+  if (!clientId) { log('err', '未获得 clientId'); return; }
+  if (!targetId) { log('err', '未绑定 App，无法发送控制指令'); return; }
+  const ok = sendWS({ type: 'msg', clientId, targetId, message });
+  if (ok) log('send', `→ [msg] ${message}`);
+}
+
+// ─── 强度控制 ──────────────────────────────────────────────────────────────
+function sendStrengthAbs(a, b) {
+  // strength-A+B+maxA+maxB  (绝对值设置用 op=3)
+  // 官方协议: message = "strength-x+y+opA+opB"
+  // op: 0=不变 1=+x 2=-x 3=直接设为x
+  const aVal = a !== null ? a : parseInt(document.getElementById('slider-a').value);
+  const bVal = b !== null ? b : parseInt(document.getElementById('slider-b').value);
+  sendMsg(`strength-${aVal}+${bVal}+3+3`);
+}
+
+function sendStrengthChannel(ch) {
+  const a = parseInt(document.getElementById('slider-a').value);
+  const b = parseInt(document.getElementById('slider-b').value);
+  if (ch === 'a') sendMsg(`strength-${a}+0+3+0`);
+  else             sendMsg(`strength-0+${b}+0+3`);
+}
+
+function sendBothStrength() {
+  const a = parseInt(document.getElementById('slider-a').value);
+  const b = parseInt(document.getElementById('slider-b').value);
+  sendMsg(`strength-${a}+${b}+3+3`);
+}
+
+function sendStrengthOp(ch, op, val) {
+  // op: 1=加 2=减
+  if (ch === 'a') sendMsg(`strength-${val}+0+${op}+0`);
+  else             sendMsg(`strength-0+${val}+0+${op}`);
+}
+
+function changeStrength(ch, delta) {
+  const slider = document.getElementById(`slider-${ch}`);
+  const display = document.getElementById(`val-${ch}`);
+  slider.value = Math.max(0, Math.min(200, parseInt(slider.value) + delta));
+  display.textContent = slider.value;
+}
+
+function emergencyStop() {
+  sendMsg('strength-0+0+3+3');
+  sendMsg('clear-a');
+  sendMsg('clear-b');
+  log('ok', '紧急停止：强度归零，波形已清除');
+}
+
+// ─── 波形控制 ──────────────────────────────────────────────────────────────
+function selectWaveCh(ch) {
+  waveCh = ch;
+  ['a','b','ab'].forEach(c => {
+    document.getElementById(`wave-ch-${c}`).classList.toggle(
+      'active', c === ch
+    );
+  });
+}
+
+function sendPulse(ch, frames) {
+  const hexArr = frames.map(f => `"${f}"`).join(',');
+  if (ch === 'ab' || ch === 'a') sendMsg(`pulse-a:[${hexArr}]`);
+  if (ch === 'ab' || ch === 'b') sendMsg(`pulse-b:[${hexArr}]`);
+}
+
+function sendClearWave() {
+  if (waveCh === 'ab' || waveCh === 'a') sendMsg('clear-a');
+  if (waveCh === 'ab' || waveCh === 'b') sendMsg('clear-b');
+}
+
+function sendRaw() {
+  const val = document.getElementById('raw-cmd').value.trim();
+  if (!val) return;
+  sendMsg(val);
+  document.getElementById('raw-cmd').value = '';
+}
+
+// ─── 状态解析 ─────────────────────────────────────────────────────────────
+function parseAndUpdateState(msg) {
+  try {
+    const parts = msg.replace('strength-', '').split('+');
+    document.getElementById('state-a').textContent    = parts[0] ?? '--';
+    document.getElementById('state-b').textContent    = parts[1] ?? '--';
+    document.getElementById('state-maxA').textContent = parts[2] ? `/ ${parts[2]}` : '';
+    document.getElementById('state-maxB').textContent = parts[3] ? `/ ${parts[3]}` : '';
+    document.getElementById('state-updated').textContent = '更新: ' + new Date().toLocaleTimeString();
+  } catch {}
+}
+
+// 定期从 HTTP API 拉取状态
+function startPolling() {
+  setInterval(async () => {
+    const url = document.getElementById('http-url').value.trim();
+    try {
+      const r = await fetch(url + '/status');
+      const data = await r.json();
+      // 更新设备状态
+      const ds = Object.values(data.deviceState || {})[0];
+      if (ds) {
+        document.getElementById('state-a').textContent    = ds.a;
+        document.getElementById('state-b').textContent    = ds.b;
+        document.getElementById('state-maxA').textContent = `/ ${ds.maxA}`;
+        document.getElementById('state-maxB').textContent = `/ ${ds.maxB}`;
+        document.getElementById('state-updated').textContent = '轮询: ' + new Date().toLocaleTimeString();
+      }
+    } catch {}
+  }, 2000);
+}
+
+// ─── UI 工具 ────────────────────────────────────────────────────────────────
+function setStatus(cls, text) {
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-text');
+  dot.className = 'dot ' + cls;
+  label.textContent = text;
+}
+
+function updateBindBadge() {
+  const badge = document.getElementById('bind-info');
+  if (isBound) {
+    badge.className = 'badge badge-ok';
+    badge.textContent = '✓ App 已绑定';
+  } else {
+    badge.className = 'badge badge-wait';
+    badge.textContent = '等待 App 扫码';
+  }
+}
+
+function log(type, msg) {
+  const box = document.getElementById('log-box');
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-ts">${ts}</span><span class="log-msg log-${type}">${escHtml(msg)}</span>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('log-box').innerHTML = '';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── 渲染预设和序列 ─────────────────────────────────────────────────────────
+function renderPresets() {
+  const grid = document.getElementById('preset-grid');
+  grid.innerHTML = '';
+  WAVEFORMS.forEach((wf, i) => {
+    const btn = document.createElement('div');
+    btn.className = 'preset-btn' + (activePreset === i ? ' active' : '');
+    btn.innerHTML = `${wf.name}<div class="preset-desc">${wf.desc}</div>`;
+    btn.onclick = () => {
+      activePreset = i;
+      renderPresets();
+      const frames = wf.hex();
+      sendPulse(waveCh, frames);
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function renderSequences() {
+  const list = document.getElementById('seq-list');
+  list.innerHTML = '';
+  SEQUENCES.forEach(seq => {
+    const item = document.createElement('div');
+    item.className = 'seq-item';
+    item.id = `seq-${seq.id}`;
+    item.innerHTML = `
+      <span class="seq-icon">${seq.icon}</span>
+      <div class="seq-info">
+        <div class="seq-name">${seq.name}</div>
+        <div class="seq-desc">${seq.desc}</div>
+      </div>
+      <span class="seq-status" id="seq-status-${seq.id}">▶</span>
+    `;
+    item.onclick = async () => {
+      const statusEl = document.getElementById(`seq-status-${seq.id}`);
+      item.classList.add('running');
+      statusEl.textContent = '⟳';
+      log('info', `[序列] 开始: ${seq.name}`);
+      try {
+        await seq.run();
+        statusEl.textContent = '✓';
+        setTimeout(() => { statusEl.textContent = '▶'; }, 2000);
+      } catch (e) {
+        log('err', `[序列] 错误: ${e}`);
+        statusEl.textContent = '✗';
+        setTimeout(() => { statusEl.textContent = '▶'; }, 2000);
+      } finally {
+        item.classList.remove('running');
+      }
+    };
+    list.appendChild(item);
+  });
+}
+
+// ─── 初始化 ────────────────────────────────────────────────────────────────
+renderPresets();
+renderSequences();
+selectWaveCh('a');
+startPolling();
+log('info', '控制台已就绪，点击"连接服务端"开始');
+</script>
+</body>
+</html>

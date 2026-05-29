@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DINO // DG-LAB SHOCK RUNNER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#06080f;
+  --surface:#0d1117;
+  --border:#1a2035;
+  --neon-a:#00f5ff;
+  --neon-b:#ff2d78;
+  --neon-y:#f5e642;
+  --neon-g:#39ff6e;
+  --muted:#3a4560;
+  --text:#b8c8e8;
+  --mono:'Share Tech Mono',monospace;
+  --pixel:'Press+Start+2P',monospace;
+  --title:'Orbitron',sans-serif;
+  --panel-w:320px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{display:flex;font-family:var(--mono);color:var(--text)}
+
+/* ── scanline ── */
+body::after{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.12) 3px,rgba(0,0,0,.12) 4px);
+  pointer-events:none;z-index:9999
+}
+
+/* ══════════════ GAME AREA ══════════════ */
+#game-area{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 60%,#0a1020 0%,#06080f 70%);
+}
+
+/* grid bg */
+#game-area::before{
+  content:'';position:absolute;inset:0;
+  background-image:
+    linear-gradient(rgba(0,245,255,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,245,255,.04) 1px,transparent 1px);
+  background-size:40px 40px;
+  animation:grid-scroll 8s linear infinite;
+}
+@keyframes grid-scroll{to{background-position:0 40px}}
+
+/* horizon glow */
+#game-area::after{
+  content:'';position:absolute;
+  bottom:140px;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--neon-a) 30%,var(--neon-b) 70%,transparent);
+  box-shadow:0 0 20px var(--neon-a),0 0 40px rgba(0,245,255,.3);
+}
+
+/* hud */
+#hud{
+  position:absolute;top:0;left:0;right:0;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px;
+  font-family:var(--title);font-size:12px;letter-spacing:.15em;
+  border-bottom:1px solid var(--border);
+  background:rgba(6,8,15,.8);
+  backdrop-filter:blur(4px);
+  z-index:10;
+}
+.hud-logo{color:var(--neon-a);font-weight:900;font-size:14px;text-shadow:0 0 20px var(--neon-a)}
+.hud-score{color:var(--neon-y);font-size:13px;text-shadow:0 0 10px var(--neon-y)}
+.hud-hi{color:var(--muted);font-size:11px}
+#conn-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--muted);
+  display:inline-block;margin-right:6px;
+  transition:background .3s;
+}
+#conn-dot.on{background:var(--neon-g);box-shadow:0 0 8px var(--neon-g);animation:blink 1.6s infinite}
+#conn-dot.bound{background:var(--neon-y);box-shadow:0 0 8px var(--neon-y);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#conn-label{font-size:10px;letter-spacing:.1em}
+
+/* canvas wrapper */
+#canvas-wrap{
+  position:relative;
+  margin-top:60px;
+}
+canvas{
+  display:block;
+  image-rendering:pixelated;
+  filter:drop-shadow(0 0 8px rgba(0,245,255,.4));
+}
+
+/* overlay screens */
+.overlay{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;
+  background:rgba(6,8,15,.85);
+  backdrop-filter:blur(2px);
+  z-index:20;
+  font-family:var(--title);
+}
+.overlay.hidden{display:none}
+.ov-title{
+  font-size:22px;font-weight:900;letter-spacing:.2em;
+  color:var(--neon-a);
+  text-shadow:0 0 30px var(--neon-a),0 0 60px rgba(0,245,255,.4);
+  animation:title-pulse 2s ease-in-out infinite;
+}
+@keyframes title-pulse{0%,100%{text-shadow:0 0 30px var(--neon-a)}50%{text-shadow:0 0 60px var(--neon-a),0 0 100px rgba(0,245,255,.6)}}
+.ov-sub{font-size:9px;color:var(--muted);letter-spacing:.2em}
+.ov-prompt{
+  font-size:9px;color:var(--neon-y);letter-spacing:.15em;
+  animation:blink 1s infinite;
+}
+.ov-score-big{font-size:28px;color:var(--neon-b);text-shadow:0 0 20px var(--neon-b);font-weight:900}
+.ov-shock-notice{
+  font-size:9px;color:var(--neon-b);letter-spacing:.1em;
+  border:1px solid var(--neon-b);padding:8px 16px;border-radius:2px;
+  background:rgba(255,45,120,.08);
+  animation:blink .5s infinite;
+}
+
+/* death flash */
+#death-flash{
+  position:absolute;inset:0;
+  background:rgba(255,45,120,.35);
+  pointer-events:none;z-index:30;
+  opacity:0;transition:opacity .1s;
+}
+#death-flash.on{opacity:1}
+
+/* ══════════════ PANEL ══════════════ */
+#panel{
+  width:var(--panel-w);
+  height:100%;
+  background:var(--surface);
+  border-left:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  flex-shrink:0;
+}
+#panel-scroll{flex:1;overflow-y:auto;padding:0}
+#panel-scroll::-webkit-scrollbar{width:3px}
+#panel-scroll::-webkit-scrollbar-thumb{background:var(--border)}
+
+.p-section{
+  border-bottom:1px solid var(--border);
+  padding:14px 16px;
+}
+.p-section:last-child{border-bottom:none}
+
+.p-header{
+  font-family:var(--title);font-size:9px;letter-spacing:.2em;
+  color:var(--muted);text-transform:uppercase;margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.p-header::before{content:'';flex:1;height:1px;background:var(--border)}
+
+/* panel title bar */
+#panel-title{
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+  background:rgba(0,245,255,.04);
+  flex-shrink:0;
+}
+#panel-title h2{
+  font-family:var(--title);font-weight:900;font-size:13px;
+  color:var(--neon-a);letter-spacing:.15em;
+  text-shadow:0 0 15px rgba(0,245,255,.5);
+}
+#panel-title p{font-size:10px;color:var(--muted);margin-top:4px;letter-spacing:.05em}
+
+/* field */
+.field{margin-bottom:10px}
+.field label{display:block;font-size:10px;color:var(--muted);letter-spacing:.1em;margin-bottom:5px}
+.field input[type=text],.field input[type=number]{
+  width:100%;background:var(--bg);border:1px solid var(--border);
+  color:var(--text);font-family:var(--mono);font-size:12px;
+  padding:7px 9px;border-radius:2px;outline:none;
+  transition:border-color .2s;
+}
+.field input:focus{border-color:var(--neon-a)}
+
+/* buttons */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  padding:7px 13px;border-radius:2px;
+  font-family:var(--title);font-size:9px;letter-spacing:.12em;
+  border:1px solid currentColor;background:transparent;
+  cursor:pointer;transition:background .15s,color .15s,box-shadow .15s;
+  user-select:none;
+}
+.btn:active{transform:scale(.97)}
+.btn-cyan{color:var(--neon-a)}
+.btn-cyan:hover{background:var(--neon-a);color:var(--bg);box-shadow:0 0 15px var(--neon-a)}
+.btn-pink{color:var(--neon-b)}
+.btn-pink:hover{background:var(--neon-b);color:#fff;box-shadow:0 0 15px var(--neon-b)}
+.btn-yellow{color:var(--neon-y)}
+.btn-yellow:hover{background:var(--neon-y);color:var(--bg);box-shadow:0 0 15px var(--neon-y)}
+.btn-green{color:var(--neon-g)}
+.btn-green:hover{background:var(--neon-g);color:var(--bg);box-shadow:0 0 15px var(--neon-g)}
+.btn-full{width:100%;margin-bottom:6px}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap}
+.btn-sm{padding:5px 9px;font-size:8px}
+
+/* status badge */
+.badge{
+  display:inline-block;padding:3px 8px;border-radius:2px;
+  font-size:9px;letter-spacing:.08em;font-family:var(--title);
+}
+.badge-ok{background:rgba(57,255,110,.12);color:var(--neon-g);border:1px solid rgba(57,255,110,.3)}
+.badge-wait{background:rgba(0,245,255,.08);color:var(--neon-a);border:1px solid rgba(0,245,255,.2)}
+.badge-err{background:rgba(255,45,120,.12);color:var(--neon-b);border:1px solid rgba(255,45,120,.3)}
+
+/* channel sliders */
+.ch-row{display:grid;grid-template-columns:28px 1fr 44px;align-items:center;gap:10px;margin-bottom:10px}
+.ch-label{font-size:11px;font-weight:bold}
+.ch-label.a{color:var(--neon-a)}
+.ch-label.b{color:var(--neon-b)}
+.ch-slider{
+  -webkit-appearance:none;appearance:none;
+  height:4px;border-radius:2px;outline:none;
+  background:var(--border);width:100%;
+}
+.ch-slider.a::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--neon-a);cursor:pointer;box-shadow:0 0 6px var(--neon-a)}
+.ch-slider.b::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--neon-b);cursor:pointer;box-shadow:0 0 6px var(--neon-b)}
+.ch-val{font-size:13px;font-family:var(--title);text-align:right}
+.ch-val.a{color:var(--neon-a)}
+.ch-val.b{color:var(--neon-b)}
+
+/* waveform selector */
+.wave-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.wave-btn{
+  padding:8px 6px;border:1px solid var(--border);border-radius:2px;
+  background:var(--bg);color:var(--text);
+  font-family:var(--title);font-size:8px;letter-spacing:.06em;
+  cursor:pointer;text-align:center;
+  transition:border-color .15s,background .15s,color .15s;
+}
+.wave-btn:hover{border-color:var(--neon-a);color:var(--neon-a)}
+.wave-btn.active{border-color:var(--neon-a);background:rgba(0,245,255,.1);color:var(--neon-a);box-shadow:0 0 8px rgba(0,245,255,.2)}
+.wave-desc{font-size:8px;color:var(--muted);margin-top:2px}
+
+/* import area */
+#wave-import{
+  width:100%;height:56px;resize:none;
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--neon-g);font-family:var(--mono);font-size:10px;
+  padding:7px;border-radius:2px;outline:none;
+  transition:border-color .2s;
+}
+#wave-import:focus{border-color:var(--neon-g)}
+
+/* log */
+#log{
+  height:110px;overflow-y:auto;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:2px;padding:8px;
+  font-size:10px;line-height:1.8;
+}
+#log::-webkit-scrollbar{width:2px}
+#log::-webkit-scrollbar-thumb{background:var(--border)}
+.le{display:flex;gap:8px}
+.lt{color:var(--muted);flex-shrink:0;font-size:9px}
+.lm{word-break:break-all}
+.lsend{color:var(--neon-y)}
+.lrecv{color:var(--neon-a)}
+.lerr{color:var(--neon-b)}
+.lok{color:var(--neon-g)}
+.linfo{color:var(--text)}
+
+/* shock notice */
+#shock-bar{
+  padding:10px 16px;
+  background:rgba(255,45,120,.08);
+  border-top:1px solid rgba(255,45,120,.2);
+  font-family:var(--title);font-size:9px;
+  color:var(--neon-b);letter-spacing:.1em;
+  text-align:center;flex-shrink:0;
+  min-height:36px;
+  transition:background .3s;
+}
+#shock-bar.active{
+  background:rgba(255,45,120,.25);
+  animation:shock-pulse .3s infinite;
+}
+@keyframes shock-pulse{0%,100%{background:rgba(255,45,120,.25)}50%{background:rgba(255,45,120,.1)}}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ GAME AREA ══════════════ -->
+<div id="game-area">
+  <div id="death-flash"></div>
+
+  <div id="hud">
+    <div class="hud-logo">⚡ SHOCK RUNNER</div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span class="hud-hi" id="hud-hi">HI 00000</span>
+      <span class="hud-score" id="hud-score">00000</span>
+    </div>
+    <div style="display:flex;align-items:center">
+      <span id="conn-dot"></span>
+      <span id="conn-label" style="font-family:var(--title);font-size:9px;letter-spacing:.1em;color:var(--muted)">OFFLINE</span>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="c" width="700" height="220"></canvas>
+
+    <!-- START screen -->
+    <div class="overlay" id="ov-start">
+      <div class="ov-title">SHOCK RUNNER</div>
+      <div class="ov-sub">DG-LAB × DINO EDITION</div>
+      <div class="ov-prompt">▶ PRESS SPACE / TAP TO START</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.08em">每次死亡 → 双通道电击</div>
+    </div>
+
+    <!-- DEAD screen -->
+    <div class="overlay hidden" id="ov-dead">
+      <div style="font-family:var(--title);font-size:11px;color:var(--neon-b);letter-spacing:.25em;text-shadow:0 0 20px var(--neon-b)">GAME OVER</div>
+      <div class="ov-score-big" id="dead-score">0</div>
+      <div class="ov-shock-notice" id="shock-notice">⚡ SHOCK TRIGGERED ⚡</div>
+      <div class="ov-prompt">▶ PRESS SPACE / TAP TO RESTART</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ PANEL ══════════════ -->
+<div id="panel">
+  <div id="panel-title">
+    <h2>DG-LAB CTRL</h2>
+    <p>郊狼电击控制面板</p>
+  </div>
+
+  <div id="panel-scroll">
+
+    <!-- 连接 -->
+    <div class="p-section">
+      <div class="p-header">连接配置</div>
+      <div class="field">
+        <label>HTTP API 地址</label>
+        <input type="text" id="http-url" value="http://localhost:5679" placeholder="http://IP:5679">
+      </div>
+      <button class="btn btn-cyan btn-full" onclick="testConn()">接入测试 / 连接</button>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <span id="bind-badge" class="badge badge-wait">等待绑定</span>
+        <span id="bind-detail" style="font-size:9px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <!-- 死亡电击设置 -->
+    <div class="p-section">
+      <div class="p-header">死亡电击强度</div>
+      <div class="ch-row">
+        <span class="ch-label a">A</span>
+        <input type="range" min="0" max="200" value="20" class="ch-slider a" id="sl-a"
+          oninput="document.getElementById('vl-a').textContent=this.value">
+        <span class="ch-val a" id="vl-a">20</span>
+      </div>
+      <div class="ch-row">
+        <span class="ch-label b">B</span>
+        <input type="range" min="0" max="200" value="10" class="ch-slider b" id="sl-b"
+          oninput="document.getElementById('vl-b').textContent=this.value">
+        <span class="ch-val b" id="vl-b">10</span>
+      </div>
+      <div class="btn-row" style="margin-top:4px">
+        <button class="btn btn-sm btn-cyan" onclick="nudge('a',5)">A+5</button>
+        <button class="btn btn-sm btn-cyan" onclick="nudge('a',-5)">A−5</button>
+        <button class="btn btn-sm btn-pink" onclick="nudge('b',5)">B+5</button>
+        <button class="btn btn-sm btn-pink" onclick="nudge('b',-5)">B−5</button>
+      </div>
+      <div style="margin-top:10px">
+        <div class="field">
+          <label>电击持续 (ms)</label>
+          <input type="number" id="shock-dur" value="1500" min="100" max="5000" step="100">
+        </div>
+      </div>
+      <button class="btn btn-pink btn-full" style="margin-top:4px" onclick="manualShock()">⚡ 手动测试电击</button>
+    </div>
+
+    <!-- 波形选择 -->
+    <div class="p-section">
+      <div class="p-header">波形选择</div>
+      <div class="wave-grid" id="wave-grid"></div>
+      <div style="margin-top:10px">
+        <div style="font-family:var(--title);font-size:9px;color:var(--muted);letter-spacing:.1em;margin-bottom:6px">▸ 导入自定义波形 HEX</div>
+        <textarea id="wave-import" placeholder='每行一帧，16进制，例：&#10;1E9082B46464646464646464646464640000FF00&#10;14508000000000000000000000000000FFFFFF00'></textarea>
+        <button class="btn btn-green btn-full btn-sm" style="margin-top:6px" onclick="importWave()">导入并应用</button>
+      </div>
+      <div style="margin-top:6px" class="btn-row">
+        <button class="btn btn-sm" style="color:var(--muted);border-color:var(--border)" onclick="clearWave()">清除波形</button>
+      </div>
+    </div>
+
+    <!-- 设备状态 -->
+    <div class="p-section">
+      <div class="p-header">设备状态</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+        <div>
+          <div style="color:var(--muted);font-size:9px;margin-bottom:3px">A 通道</div>
+          <div id="st-a" style="color:var(--neon-a);font-size:20px;font-family:var(--title)">--</div>
+        </div>
+        <div>
+          <div style="color:var(--muted);font-size:9px;margin-bottom:3px">B 通道</div>
+          <div id="st-b" style="color:var(--neon-b);font-size:20px;font-family:var(--title)">--</div>
+        </div>
+      </div>
+      <div style="margin-top:6px">
+        <button class="btn btn-sm" style="color:var(--muted);border-color:var(--border)" onclick="pollStatus()">刷新状态</button>
+        <button class="btn btn-sm btn-pink" style="margin-left:6px" onclick="emergencyStop()">⛔ 紧急停止</button>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="p-section">
+      <div class="p-header" style="margin-bottom:8px">
+        消息日志
+        <button class="btn btn-sm" style="color:var(--muted);border-color:var(--border);margin-left:auto" onclick="clearLog()">清空</button>
+      </div>
+      <div id="log"></div>
+    </div>
+
+  </div><!-- /panel-scroll -->
+
+  <div id="shock-bar">⚡ 电击就绪</div>
+</div><!-- /panel -->
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  DG-LAB 接口层
+// ═══════════════════════════════════════════════════════════
+let httpBase = 'http://localhost:5679';
+let isBound = false;
+let currentTerminalId = null;
+let selectedWaveIdx = 0;
+let customWaveFrames = null;  // 用户导入的波形
+
+// 内置波形库
+const WAVES = [
+  {
+    name:'连续稳定', desc:'持续输出',
+    frames:()=>['1E9082B46464646464646464646464640000FF00',
+                 '1E9082B46464646464646464646464640000FF00',
+                 '1E9082B46464646464646464646464640000FF00',
+                 '1E9082B46464646464646464646464640000FF00']
+  },
+  {
+    name:'脉冲节奏', desc:'短促跳动',
+    frames:()=>['14508000000000000000000000000000FFFFFF00',
+                 '0A508000000000000000000000000000FFFFFF00',
+                 '14508000000000000000000000000000FFFFFF00',
+                 '0A508000000000000000000000000000FFFFFF00']
+  },
+  {
+    name:'呼吸渐变', desc:'渐强渐弱',
+    frames:()=>{
+      return [10,20,32,44].map(v=>{
+        const h=v.toString(16).padStart(2,'0').toUpperCase();
+        return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+      });
+    }
+  },
+  {
+    name:'波浪起伏', desc:'周期变化',
+    frames:()=>{
+      return [8,24,40,24].map(v=>{
+        const h=v.toString(16).padStart(2,'0').toUpperCase();
+        return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+      });
+    }
+  },
+  {
+    name:'随机扰动', desc:'不规律感',
+    frames:()=>Array.from({length:4},()=>{
+      const v=Math.floor(Math.random()*40+8);
+      const h=v.toString(16).padStart(2,'0').toUpperCase();
+      return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+    })
+  },
+  {
+    name:'强力冲击', desc:'高强度连续',
+    frames:()=>['3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                 '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                 '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                 '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00']
+  },
+];
+
+async function apiGet(path){
+  const url = httpBase.replace(/\/+$/,'') + path;
+  const r = await fetch(url,{signal:AbortSignal.timeout(3000)});
+  return r.json();
+}
+
+async function apiPost(path, body){
+  const url = httpBase.replace(/\/+$/,'') + path;
+  const r = await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body),
+    signal:AbortSignal.timeout(3000)
+  });
+  return r.json();
+}
+
+// 发送通用 message 指令（自动填充 targetId）
+async function sendCmd(message){
+  try{
+    const res = await apiPost('/cmd',{message});
+    if(res.ok) log('send',`→ ${message}`);
+    else log('err',`发送失败: ${res.error||'未知'}`);
+    return res.ok;
+  }catch(e){
+    log('err',`HTTP 错误: ${e.message}`);
+    return false;
+  }
+}
+
+async function testConn(){
+  httpBase = document.getElementById('http-url').value.trim();
+  log('info','测试连接 '+httpBase+'...');
+  try{
+    const data = await apiGet('/status');
+    isBound = Object.keys(data.bindings||{}).length > 0;
+    currentTerminalId = data.terminalId || null;
+    const ds = Object.values(data.deviceState||{})[0];
+    if(ds){ document.getElementById('st-a').textContent=ds.a; document.getElementById('st-b').textContent=ds.b; }
+    if(isBound){
+      setConnUI('bound','已绑定');
+      log('ok','连接成功，App 已绑定');
+    } else {
+      setConnUI('on','已连接，等待 App 扫码');
+      log('ok','服务端已连接，请用郊狼 App 扫码绑定');
+    }
+  }catch(e){
+    setConnUI('','离线');
+    log('err','连接失败：'+e.message);
+  }
+}
+
+async function pollStatus(){
+  try{
+    const data = await apiGet('/status');
+    isBound = Object.keys(data.bindings||{}).length > 0;
+    const ds = Object.values(data.deviceState||{})[0];
+    if(ds){
+      document.getElementById('st-a').textContent=ds.a;
+      document.getElementById('st-b').textContent=ds.b;
+    }
+    if(isBound) setConnUI('bound','已绑定');
+  }catch{}
+}
+
+function setConnUI(cls, text){
+  const dot = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+  const badge = document.getElementById('bind-badge');
+  dot.className = cls ? `on ${cls==='bound'?'bound':''}` : '';
+  if(cls==='bound'){ dot.className='bound'; }
+  else if(cls==='on'){ dot.className='on'; }
+  else { dot.className=''; }
+  label.textContent = text.toUpperCase();
+  label.style.color = cls==='bound' ? 'var(--neon-y)' : cls==='on' ? 'var(--neon-g)' : 'var(--muted)';
+  if(cls==='bound'){
+    badge.className='badge badge-ok';
+    badge.textContent='✓ App已绑定';
+  } else if(cls==='on'){
+    badge.className='badge badge-wait';
+    badge.textContent='等待App扫码';
+  } else {
+    badge.className='badge badge-err';
+    badge.textContent='未连接';
+  }
+}
+
+// 获取当前选中波形帧
+function getWaveFrames(){
+  if(customWaveFrames && customWaveFrames.length > 0) return customWaveFrames;
+  return WAVES[selectedWaveIdx].frames();
+}
+
+// 触发电击（死亡时调用）
+async function triggerShock(){
+  const a = parseInt(document.getElementById('sl-a').value);
+  const b = parseInt(document.getElementById('sl-b').value);
+  const dur = parseInt(document.getElementById('shock-dur').value) || 1500;
+
+  log('send',`⚡ 电击触发 A=${a} B=${b} dur=${dur}ms`);
+  document.getElementById('shock-bar').textContent = `⚡ 电击中... A:${a} B:${b}`;
+  document.getElementById('shock-bar').classList.add('active');
+
+  // 1. 设置强度
+  await sendCmd(`strength-${a}+${b}+3+3`);
+
+  // 2. 发送波形
+  const frames = getWaveFrames();
+  const hexArr = frames.map(f=>`"${f}"`).join(',');
+  await sendCmd(`pulse-a:[${hexArr}]`);
+  await sendCmd(`pulse-b:[${hexArr}]`);
+
+  // 3. 持续后归零
+  setTimeout(async()=>{
+    await sendCmd('strength-0+0+3+3');
+    await sendCmd('clear-a');
+    await sendCmd('clear-b');
+    document.getElementById('shock-bar').textContent='⚡ 电击就绪';
+    document.getElementById('shock-bar').classList.remove('active');
+    log('ok','电击结束，已归零');
+  }, dur);
+}
+
+async function manualShock(){ await triggerShock(); }
+
+async function emergencyStop(){
+  await sendCmd('strength-0+0+3+3');
+  await sendCmd('clear-a');
+  await sendCmd('clear-b');
+  document.getElementById('shock-bar').textContent='⛔ 已紧急停止';
+  document.getElementById('shock-bar').classList.remove('active');
+  log('ok','紧急停止执行');
+}
+
+function nudge(ch, val){
+  const sl = document.getElementById('sl-'+ch);
+  const lbl = document.getElementById('vl-'+ch);
+  sl.value = Math.max(0, Math.min(200, parseInt(sl.value)+val));
+  lbl.textContent = sl.value;
+}
+
+function clearWave(){
+  sendCmd('clear-a'); sendCmd('clear-b');
+  customWaveFrames = null;
+  log('info','波形已清除');
+}
+
+function importWave(){
+  const raw = document.getElementById('wave-import').value.trim();
+  const lines = raw.split(/\n+/).map(l=>l.trim()).filter(l=>l.length>0);
+  if(lines.length===0){ log('err','导入内容为空'); return; }
+  customWaveFrames = lines;
+  // 取消预设选中
+  document.querySelectorAll('.wave-btn').forEach(b=>b.classList.remove('active'));
+  log('ok',`导入 ${lines.length} 帧自定义波形`);
+}
+
+// ─── 波形网格渲染 ─────────────────────────────────────────
+function renderWaveGrid(){
+  const grid = document.getElementById('wave-grid');
+  grid.innerHTML='';
+  WAVES.forEach((w,i)=>{
+    const btn=document.createElement('div');
+    btn.className='wave-btn'+(i===selectedWaveIdx?' active':'');
+    btn.innerHTML=`${w.name}<div class="wave-desc">${w.desc}</div>`;
+    btn.onclick=()=>{
+      selectedWaveIdx=i;
+      customWaveFrames=null;
+      document.getElementById('wave-import').value='';
+      document.querySelectorAll('.wave-btn').forEach((b,j)=>b.classList.toggle('active',j===i));
+    };
+    grid.appendChild(btn);
+  });
+}
+
+// ─── 日志 ─────────────────────────────────────────────────
+function log(type, msg){
+  const box=document.getElementById('log');
+  const ts=new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  const el=document.createElement('div');
+  el.className='le';
+  el.innerHTML=`<span class="lt">${ts}</span><span class="lm l${type}">${esc(msg)}</span>`;
+  box.appendChild(el);
+  box.scrollTop=box.scrollHeight;
+  if(box.children.length>80) box.removeChild(box.firstChild);
+}
+function clearLog(){ document.getElementById('log').innerHTML=''; }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// 定时轮询状态
+setInterval(pollStatus, 3000);
+
+// ═══════════════════════════════════════════════════════════
+//  DINO GAME ENGINE
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const GROUND = H - 40;
+
+// 颜色
+const C = {
+  dino:    '#00f5ff',
+  dinoEye: '#06080f',
+  cactus:  '#ff2d78',
+  ptero:   '#f5e642',
+  ground:  '#1a2035',
+  cloud:   'rgba(0,245,255,0.08)',
+  score:   '#00f5ff',
+  particle:'#ff2d78',
+};
+
+// 状态
+let state = 'start'; // start | running | dead
+let score = 0, hiScore = 0, frame = 0, speed = 0;
+let raf = null;
+
+// 恐龙
+const dino = {
+  x:80, y:GROUND, w:28, h:36,
+  vy:0, onGround:true, frame:0, frameTimer:0,
+  ducking:false,
+};
+
+// 障碍物 & 粒子
+let obstacles = [], particles = [], clouds = [];
+
+// ── 输入 ─────────────────────────────────────────────────
+let jumping = false, ducking = false;
+document.addEventListener('keydown', e=>{
+  if(e.code==='Space'||e.code==='ArrowUp'){
+    e.preventDefault(); onJump();
+  }
+  if(e.code==='ArrowDown'){ ducking=true; }
+});
+document.addEventListener('keyup', e=>{ if(e.code==='ArrowDown') ducking=false; });
+canvas.addEventListener('pointerdown', ()=>onJump());
+
+function onJump(){
+  if(state==='start'){ startGame(); return; }
+  if(state==='dead'){ startGame(); return; }
+  if(dino.onGround){ dino.vy=-14; dino.onGround=false; }
+}
+
+// ── 游戏循环 ──────────────────────────────────────────────
+function startGame(){
+  score=0; frame=0; speed=5.5;
+  obstacles=[]; particles=[]; clouds=[];
+  dino.y=GROUND; dino.vy=0; dino.onGround=true; dino.frame=0;
+  document.getElementById('ov-start').classList.add('hidden');
+  document.getElementById('ov-dead').classList.add('hidden');
+  state='running';
+  if(!raf) raf=requestAnimationFrame(loop);
+}
+
+function loop(){
+  raf=requestAnimationFrame(loop);
+  update();
+  draw();
+}
+
+function update(){
+  if(state!=='running') return;
+  frame++;
+  score++;
+  speed = 5.5 + Math.floor(score/500)*0.4;
+  document.getElementById('hud-score').textContent = String(score).padStart(5,'0');
+  if(score>hiScore){ hiScore=score; document.getElementById('hud-hi').textContent='HI '+String(hiScore).padStart(5,'0'); }
+
+  // dino physics
+  dino.vy += 0.7;
+  dino.y += dino.vy;
+  if(dino.y>=GROUND){ dino.y=GROUND; dino.vy=0; dino.onGround=true; }
+  dino.ducking = ducking && dino.onGround;
+  dino.frameTimer++;
+  if(dino.frameTimer>8){ dino.frame=(dino.frame+1)%2; dino.frameTimer=0; }
+
+  // spawn obstacles
+  const lastX = obstacles.length ? obstacles[obstacles.length-1].x : -999;
+  const minGap = Math.max(280, 420 - score/20);
+  if(lastX < W - minGap){
+    if(Math.random()<0.5) spawnCactus(); else spawnPtero();
+  }
+
+  // move obstacles
+  for(let i=obstacles.length-1;i>=0;i--){
+    obstacles[i].x -= speed;
+    if(obstacles[i].x < -80) obstacles.splice(i,1);
+  }
+
+  // clouds
+  if(frame%120===0) clouds.push({x:W+60,y:30+Math.random()*60,w:70+Math.random()*50});
+  for(let i=clouds.length-1;i>=0;i--){
+    clouds[i].x -= speed*0.25;
+    if(clouds[i].x<-120) clouds.splice(i,1);
+  }
+
+  // particles
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.15; p.life--;
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  // collision
+  for(const ob of obstacles){
+    if(hitTest(dino,ob)){ onDead(); return; }
+  }
+}
+
+function hitTest(d, ob){
+  const dh = d.ducking ? d.h*0.55 : d.h;
+  const dy_off = d.ducking ? d.h*0.45 : 0;
+  const pad = 6;
+  return (
+    d.x+pad < ob.x+ob.w-pad &&
+    d.x+d.w-pad > ob.x+pad &&
+    d.y-dh+dy_off+pad < ob.y &&
+    d.y > ob.y-ob.h+pad
+  );
+}
+
+function spawnCactus(){
+  const h = 40+Math.random()*30;
+  const w = 16+Math.floor(Math.random()*3)*8;
+  obstacles.push({type:'cactus', x:W+40, y:GROUND, w, h, legs:Math.random()>.5});
+}
+
+function spawnPtero(){
+  const yOpts = [GROUND-80, GROUND-50, GROUND-30];
+  const y = yOpts[Math.floor(Math.random()*yOpts.length)];
+  obstacles.push({type:'ptero', x:W+40, y, w:40, h:28, wing:0, wingTimer:0});
+}
+
+function onDead(){
+  state='dead';
+  // screen flash
+  const fl=document.getElementById('death-flash');
+  fl.classList.add('on');
+  setTimeout(()=>fl.classList.remove('on'),200);
+  // particle burst
+  for(let i=0;i<24;i++){
+    particles.push({
+      x:dino.x+dino.w/2, y:dino.y-dino.h/2,
+      vx:(Math.random()-.5)*8, vy:(Math.random()-1.2)*7,
+      life:30+Math.random()*20,
+      color: Math.random()>.5?C.cactus:C.ptero
+    });
+  }
+  // show overlay
+  document.getElementById('dead-score').textContent=score;
+  const sn=document.getElementById('shock-notice');
+  sn.style.display='block';
+  document.getElementById('ov-dead').classList.remove('hidden');
+  // trigger shock
+  if(isBound){ triggerShock(); sn.textContent='⚡ SHOCK TRIGGERED ⚡'; }
+  else { sn.textContent='⚠ 未连接 DG-LAB'; }
+}
+
+// ── 绘制 ──────────────────────────────────────────────────
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // ground
+  ctx.fillStyle=C.ground;
+  ctx.fillRect(0,GROUND+2,W,2);
+  // dashes
+  ctx.fillStyle='rgba(0,245,255,0.15)';
+  for(let x=(frame*speed*.5)%60;x<W;x+=60) ctx.fillRect(x,GROUND+4,30,1);
+
+  // clouds
+  for(const cl of clouds){
+    ctx.fillStyle=C.cloud;
+    ctx.beginPath();
+    ctx.ellipse(cl.x,cl.y,cl.w/2,12,0,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // obstacles
+  for(const ob of obstacles){
+    if(ob.type==='cactus') drawCactus(ob);
+    else drawPtero(ob);
+    ob.wingTimer=(ob.wingTimer||0)+1;
+    if(ob.type==='ptero'&&ob.wingTimer>10){ ob.wing=1-ob.wing; ob.wingTimer=0; }
+  }
+
+  // dino
+  drawDino();
+
+  // particles
+  for(const p of particles){
+    const alpha=p.life/50;
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle=p.color;
+    ctx.shadowBlur=8; ctx.shadowColor=p.color;
+    ctx.fillRect(p.x-3,p.y-3,5,5);
+    ctx.restore();
+  }
+}
+
+function drawDino(){
+  const x=dino.x, y=dino.y;
+  const h=dino.ducking?dino.h*0.55:dino.h;
+  const yTop=y-h;
+  ctx.save();
+  ctx.shadowBlur=14; ctx.shadowColor=C.dino;
+
+  if(dino.ducking){
+    // ducking: wide flat body
+    ctx.fillStyle=C.dino;
+    ctx.fillRect(x,yTop,dino.w+12,h);
+    ctx.fillStyle=C.dinoEye;
+    ctx.fillRect(x+dino.w+4,yTop+4,5,5);
+  } else {
+    // body
+    ctx.fillStyle=C.dino;
+    ctx.fillRect(x,yTop+8,dino.w,h-8);
+    // head
+    ctx.fillRect(x+8,yTop,dino.w-4,16);
+    // eye
+    ctx.fillStyle=C.dinoEye;
+    ctx.fillRect(x+18,yTop+4,5,5);
+    // tail
+    ctx.fillStyle=C.dino;
+    ctx.fillRect(x-8,yTop+20,10,10);
+    // legs (running anim)
+    const lf=dino.frame;
+    ctx.fillRect(x+4,y-12,8,14);
+    ctx.fillRect(x+14+(lf?0:6),y-12,8,14);
+  }
+  ctx.restore();
+}
+
+function drawCactus(ob){
+  ctx.save();
+  ctx.fillStyle=C.cactus;
+  ctx.shadowBlur=10; ctx.shadowColor=C.cactus;
+  const x=ob.x, y=ob.y, w=ob.w, h=ob.h;
+  // trunk
+  ctx.fillRect(x+w/2-5,y-h,10,h);
+  // arms
+  ctx.fillRect(x,y-h*0.55,w/2-3,8);
+  ctx.fillRect(x,y-h*0.75,7,h*0.22);
+  ctx.fillRect(x+w/2+3,y-h*0.6,w/2-3,8);
+  ctx.fillRect(x+w-7,y-h*0.8,7,h*0.22);
+  ctx.restore();
+}
+
+function drawPtero(ob){
+  ctx.save();
+  ctx.fillStyle=C.ptero;
+  ctx.shadowBlur=12; ctx.shadowColor=C.ptero;
+  const x=ob.x, y=ob.y, w=ob.w;
+  // body
+  ctx.fillRect(x+w/2-8,y-12,16,12);
+  // beak
+  ctx.fillRect(x+w/2+8,y-10,10,5);
+  // wings
+  if(ob.wing===0){
+    ctx.fillRect(x,y-18,w/2-5,8);
+    ctx.fillRect(x+w/2+5,y-18,w/2-5,8);
+  } else {
+    ctx.fillRect(x,y-10,w/2-5,8);
+    ctx.fillRect(x+w/2+5,y-10,w/2-5,8);
+  }
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+renderWaveGrid();
+log('info','控制台就绪，点击"接入测试/连接"');
+requestAnimationFrame(loop); // 开始渲染（显示 start 画面）
+</script>
+</body>
+</html>

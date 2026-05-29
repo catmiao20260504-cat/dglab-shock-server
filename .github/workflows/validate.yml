@@ -1,0 +1,47 @@
+name: Validate App Structure
+
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check app folder structure
+        run: |
+          echo "检查 apps/ 下每个目录的文件结构..."
+          failed=0
+          for app_dir in apps/*/; do
+            name=$(basename "$app_dir")
+            [ "$name" = "_template" ] && continue
+
+            if [ ! -f "${app_dir}index.html" ]; then
+              echo "❌ ${name}: 缺少 index.html"
+              failed=1
+            else
+              echo "✓  ${name}: index.html 存在"
+            fi
+
+            if [ ! -f "${app_dir}README.md" ]; then
+              echo "❌ ${name}: 缺少 README.md"
+              failed=1
+            else
+              echo "✓  ${name}: README.md 存在"
+            fi
+          done
+
+          if [ $failed -ne 0 ]; then
+            echo ""
+            echo "请参考 apps/_template/ 补全文件，详见 CONTRIBUTING.md"
+            exit 1
+          fi
+          echo "所有 app 结构校验通过 ✓"
+
+      - name: Python syntax check
+        run: |
+          python3 -m py_compile server/dglab_server.py
+          echo "服务端语法检查通过 ✓"
