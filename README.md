@@ -41,7 +41,7 @@
 ### 1. 安装依赖
 
 ```bash
-pip install websockets qrcode[pil]
+pip install websockets 'qrcode[pil]'
 ```
 
 ### 2. 启动服务端
