@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SNAKE // DG-LAB SHOCK PUNISHMENT</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0c14;
+  --surface: #0f121c;
+  --border: #1e2538;
+  --neon-a: #00f5ff;
+  --neon-b: #ff2d78;
+  --neon-y: #f5e642;
+  --neon-g: #39ff6e;
+  --muted: #4a5780;
+  --text: #c0d0f0;
+  --mono: 'Share Tech Mono', monospace;
+  --pixel: 'Press Start 2P', monospace;
+  --title: 'Orbitron', sans-serif;
+  --panel-w: 320px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); }
+body {
+  display: flex;
+  font-family: var(--mono);
+  color: var(--text);
+  position: relative;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.2) 3px, rgba(0,0,0,0.2) 4px);
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* GAME AREA */
+#game-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: radial-gradient(ellipse at 50% 50%, #0a1020, #05070e);
+}
+#game-area::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(0,245,255,0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,245,255,0.03) 1px, transparent 1px);
+  background-size: 30px 30px;
+  animation: gridScroll 12s linear infinite;
+  pointer-events: none;
+}
+@keyframes gridScroll { to { background-position: 0 30px; } }
+
+#canvas-wrap {
+  position: relative;
+  border-radius: 12px;
+  box-shadow: 0 0 30px rgba(0,245,255,0.15);
+}
+canvas {
+  display: block;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  background: #03050b;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+}
+
+/* HUD */
+#hud {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: rgba(10,12,20,0.85);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+  font-family: var(--title);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+}
+.hud-logo { color: var(--neon-a); font-weight: 900; text-shadow: 0 0 8px var(--neon-a); }
+.hud-score { color: var(--neon-y); text-shadow: 0 0 8px var(--neon-y); }
+.hud-hi { color: var(--muted); font-size: 11px; }
+#conn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+  margin-right: 6px;
+  transition: background 0.2s;
+}
+#conn-dot.on { background: var(--neon-g); box-shadow: 0 0 8px var(--neon-g); animation: blink 1.6s infinite; }
+#conn-dot.bound { background: var(--neon-y); box-shadow: 0 0 8px var(--neon-y); animation: blink 0.8s infinite; }
+@keyframes blink { 0%,100%{ opacity: 1; } 50%{ opacity: 0.4; } }
+#conn-label { font-size: 9px; letter-spacing: 0.1em; }
+
+/* overlays */
+.overlay {
+  position: absolute; inset: 0;
+  background: rgba(3,5,11,0.92);
+  backdrop-filter: blur(4px);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 20px;
+  z-index: 20;
+  font-family: var(--title);
+}
+.overlay.hidden { display: none; }
+.ov-title {
+  font-size: 28px; font-weight: 900;
+  color: var(--neon-a);
+  text-shadow: 0 0 20px var(--neon-a);
+  letter-spacing: 0.2em;
+}
+.ov-sub { font-size: 9px; color: var(--muted); letter-spacing: 0.2em; }
+.ov-prompt {
+  font-size: 9px; color: var(--neon-y);
+  animation: blink 1s infinite;
+}
+.ov-score-big { font-size: 40px; color: var(--neon-b); text-shadow: 0 0 20px var(--neon-b); font-weight: 900; }
+.ov-shock-notice {
+  font-size: 9px; color: var(--neon-b);
+  border: 1px solid var(--neon-b);
+  padding: 8px 18px;
+  background: rgba(255,45,120,0.15);
+  border-radius: 2px;
+}
+#death-flash {
+  position: absolute; inset: 0;
+  background: rgba(255,45,120,0.5);
+  pointer-events: none; z-index: 25;
+  opacity: 0;
+  transition: opacity 0.08s;
+}
+#death-flash.on { opacity: 1; }
+
+/* RIGHT PANEL */
+#panel {
+  width: var(--panel-w);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+#panel-scroll { flex: 1; overflow-y: auto; padding: 0; }
+#panel-scroll::-webkit-scrollbar { width: 3px; }
+#panel-scroll::-webkit-scrollbar-thumb { background: var(--border); }
+
+.p-section {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+}
+.p-header {
+  font-family: var(--title); font-size: 9px; letter-spacing: 0.2em;
+  color: var(--muted); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.p-header::before { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+#panel-title {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,245,255,0.04);
+}
+#panel-title h2 {
+  font-family: var(--title); font-weight: 900; font-size: 13px;
+  color: var(--neon-a); letter-spacing: 0.15em;
+}
+
+.field { margin-bottom: 12px; }
+.field label { font-size: 9px; color: var(--muted); display: block; margin-bottom: 5px; letter-spacing: 0.1em; }
+.field input {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 12px;
+  padding: 6px 8px; border-radius: 4px; outline: none;
+}
+.field input:focus { border-color: var(--neon-a); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; padding: 7px 14px; border-radius: 4px;
+  font-family: var(--title); font-size: 9px; letter-spacing: 0.12em;
+  border: 1px solid currentColor; background: transparent;
+  cursor: pointer; transition: all 0.15s;
+}
+.btn:active { transform: scale(0.97); }
+.btn-cyan { color: var(--neon-a); }
+.btn-cyan:hover { background: var(--neon-a); color: #000; box-shadow: 0 0 12px var(--neon-a); }
+.btn-pink { color: var(--neon-b); }
+.btn-pink:hover { background: var(--neon-b); color: #fff; box-shadow: 0 0 12px var(--neon-b); }
+.btn-yellow { color: var(--neon-y); }
+.btn-yellow:hover { background: var(--neon-y); color: #000; }
+.btn-full { width: 100%; margin-bottom: 6px; }
+.btn-sm { padding: 5px 8px; font-size: 8px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.badge {
+  display: inline-block; padding: 4px 8px; border-radius: 4px;
+  font-size: 9px; font-family: var(--title);
+}
+.badge-ok { background: rgba(57,255,110,0.12); color: var(--neon-g); border: 1px solid rgba(57,255,110,0.4); }
+.badge-wait { background: rgba(0,245,255,0.08); color: var(--neon-a); border: 1px solid rgba(0,245,255,0.3); }
+.badge-err { background: rgba(255,45,120,0.12); color: var(--neon-b); border: 1px solid rgba(255,45,120,0.3); }
+
+.ch-row {
+  display: grid; grid-template-columns: 28px 1fr 44px;
+  align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.ch-label { font-size: 11px; font-weight: bold; }
+.ch-label.a { color: var(--neon-a); }
+.ch-label.b { color: var(--neon-b); }
+.ch-slider {
+  -webkit-appearance: none; height: 4px; border-radius: 2px;
+  background: var(--border); outline: none;
+}
+.ch-slider.a::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--neon-a); cursor: pointer; box-shadow: 0 0 6px var(--neon-a); }
+.ch-slider.b::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--neon-b); cursor: pointer; box-shadow: 0 0 6px var(--neon-b); }
+.ch-val { font-size: 13px; font-family: var(--title); text-align: right; }
+.ch-val.a { color: var(--neon-a); }
+.ch-val.b { color: var(--neon-b); }
+
+.wave-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.wave-btn {
+  padding: 6px 4px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); font-family: var(--title); font-size: 8px;
+  text-align: center; cursor: pointer; transition: 0.1s;
+}
+.wave-btn.active { border-color: var(--neon-a); background: rgba(0,245,255,0.15); color: var(--neon-a); }
+
+#wave-import {
+  width: 100%; height: 60px; background: var(--bg);
+  border: 1px solid var(--border); color: var(--neon-g);
+  font-family: var(--mono); font-size: 9px; padding: 6px; resize: vertical;
+  border-radius: 4px;
+}
+#log {
+  height: 110px; overflow-y: auto; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px; font-size: 9px; line-height: 1.6;
+}
+.le { display: flex; gap: 8px; }
+.lt { color: var(--muted); flex-shrink: 0; }
+.lsend { color: var(--neon-y); }
+.lrecv { color: var(--neon-a); }
+.lok { color: var(--neon-g); }
+.lerr { color: var(--neon-b); }
+.linfo { color: var(--text); }
+
+#shock-bar {
+  padding: 10px 16px; background: rgba(255,45,120,0.1);
+  border-top: 1px solid rgba(255,45,120,0.3);
+  font-family: var(--title); font-size: 9px; text-align: center;
+  color: var(--neon-b); flex-shrink: 0;
+}
+#shock-bar.active { background: rgba(255,45,120,0.35); animation: pulseShock 0.3s infinite; }
+@keyframes pulseShock { 0%,100%{ background: rgba(255,45,120,0.35); } 50%{ background: rgba(255,45,120,0.15); } }
+</style>
+</head>
+<body>
+
+<div id="game-area">
+  <div id="death-flash"></div>
+  <div id="hud">
+    <div class="hud-logo">⚡ SNAKE PUNISH</div>
+    <div style="display:flex; gap:20px;">
+      <span class="hud-hi" id="hud-hi">HI 0</span>
+      <span class="hud-score" id="hud-score">0</span>
+    </div>
+    <div><span id="conn-dot"></span><span id="conn-label" style="font-size:9px;">OFFLINE</span></div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="snakeCanvas" width="700" height="500"></canvas>
+    <div class="overlay" id="ov-start">
+      <div class="ov-title">SNAKE PUNISH</div>
+      <div class="ov-sub">DG-LAB 电击惩罚版</div>
+      <div class="ov-prompt">▶ 按空格 / 上键 或 点击画面开始</div>
+      <div style="font-size:8px; color:var(--muted);">碰撞墙壁/自身 → 双通道电击</div>
+    </div>
+    <div class="overlay hidden" id="ov-dead">
+      <div style="font-size:12px; color:var(--neon-b); letter-spacing:0.2em;">GAME OVER</div>
+      <div class="ov-score-big" id="dead-score">0</div>
+      <div class="ov-shock-notice" id="shock-notice">⚡ 电击惩罚中 ⚡</div>
+      <div class="ov-prompt">▶ 按空格 / 上键 重新开始</div>
+    </div>
+  </div>
+</div>
+
+<div id="panel">
+  <div id="panel-title"><h2>DG-LAB CTRL</h2><p>电击强度 & 波形配置</p></div>
+  <div id="panel-scroll">
+    <div class="p-section">
+      <div class="p-header">连接配置</div>
+      <div class="field"><label>HTTP API 地址</label><input type="text" id="http-url" value="http://localhost:5679"></div>
+      <button class="btn btn-cyan btn-full" id="connBtn">🔌 接入测试 / 连接</button>
+      <div style="margin-top:8px;"><span id="bind-badge" class="badge badge-wait">等待绑定</span><span id="bind-detail" style="font-size:9px; margin-left:8px;"></span></div>
+    </div>
+    <div class="p-section">
+      <div class="p-header">死亡惩罚电击强度</div>
+      <div class="ch-row"><span class="ch-label a">A</span><input type="range" min="0" max="200" value="25" class="ch-slider a" id="sl-a"><span class="ch-val a" id="vl-a">25</span></div>
+      <div class="ch-row"><span class="ch-label b">B</span><input type="range" min="0" max="200" value="15" class="ch-slider b" id="sl-b"><span class="ch-val b" id="vl-b">15</span></div>
+      <div class="btn-row"><button class="btn btn-sm btn-cyan" onclick="nudgeStrength('a',5)">A+5</button><button class="btn btn-sm btn-cyan" onclick="nudgeStrength('a',-5)">A-5</button><button class="btn btn-sm btn-pink" onclick="nudgeStrength('b',5)">B+5</button><button class="btn btn-sm btn-pink" onclick="nudgeStrength('b',-5)">B-5</button></div>
+      <div class="field" style="margin-top:8px;"><label>电击时长 (ms)</label><input type="number" id="shock-dur" value="1600" min="300" max="5000" step="100"></div>
+      <button class="btn btn-pink btn-full" id="manualShockBtn">⚡ 手动测试电击</button>
+    </div>
+    <div class="p-section">
+      <div class="p-header">波形预设</div>
+      <div class="wave-grid" id="wave-grid"></div>
+      <div class="field"><label>自定义波形 HEX (每行一帧)</label><textarea id="wave-import" placeholder="1E9082B46464646464646464646464640000FF00&#10;14508000000000000000000000000000FFFFFF00"></textarea></div>
+      <button class="btn btn-green btn-sm btn-full" id="importWaveBtn">导入自定义波形</button>
+      <button class="btn btn-sm" style="color:var(--muted); margin-top:6px;" id="clearWaveBtn">清除波形</button>
+    </div>
+    <div class="p-section">
+      <div class="p-header">设备实时状态</div>
+      <div style="display:flex; gap:20px;"><div><span style="color:var(--neon-a);">A强度</span><div id="st-a" style="font-size:24px; font-family:var(--title);">--</div></div><div><span style="color:var(--neon-b);">B强度</span><div id="st-b" style="font-size:24px; font-family:var(--title);">--</div></div></div>
+      <div class="btn-row"><button class="btn btn-sm" style="color:var(--muted);" id="refreshStatusBtn">刷新状态</button><button class="btn btn-sm btn-pink" id="emergencyStopBtn">⛔ 紧急停止</button></div>
+    </div>
+    <div class="p-section">
+      <div class="p-header">日志</div>
+      <div id="log"></div>
+      <button class="btn btn-sm" style="margin-top:6px; color:var(--muted);" id="clearLogBtn">清空日志</button>
+    </div>
+  </div>
+  <div id="shock-bar">⚡ 电击就绪</div>
+</div>
+
+<script>
+// ---------- DG-LAB API 层 ----------
+let httpBase = 'http://localhost:5679';
+let isBound = false;
+let currentTerminalId = null;
+let customWaveFrames = null;
+let selectedWaveIdx = 0;
+
+const WAVES = [
+  { name:'连续稳定', desc:'平滑', frames:()=>Array(4).fill('1E9082B46464646464646464646464640000FF00') },
+  { name:'脉冲节奏', desc:'短促', frames:()=>Array(4).fill('14508000000000000000000000000000FFFFFF00') },
+  { name:'呼吸渐变', desc:'渐强渐弱', frames:()=>['1E5082B41E1E1E1E1E1E1E1E1E1E1E1E1E0000FF00','3C5082B43C3C3C3C3C3C3C3C3C3C3C3C3C0000FF00','1E5082B41E1E1E1E1E1E1E1E1E1E1E1E1E0000FF00','0A5082B40A0A0A0A0A0A0A0A0A0A0A0A0A0000FF00'] },
+  { name:'强力冲击', desc:'高强', frames:()=>Array(4).fill('3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00') }
+];
+
+async function apiGet(path) { const r = await fetch(httpBase.replace(/\/+$/,'')+path, {signal:AbortSignal.timeout(2500)}); return r.json(); }
+async function apiPost(path, body) { const r = await fetch(httpBase.replace(/\/+$/,'')+path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body), signal:AbortSignal.timeout(3000)}); return r.json(); }
+
+async function sendCmd(message) {
+  try {
+    const res = await apiPost('/cmd', {message});
+    if(res.ok) log('send', `→ ${message}`);
+    else log('err', `发送失败: ${res.error||'?'}`);
+    return res.ok;
+  } catch(e) { log('err', `HTTP错误 ${e.message}`); return false; }
+}
+
+async function testConnection() {
+  httpBase = document.getElementById('http-url').value.trim();
+  log('info', `连接 ${httpBase} ...`);
+  try {
+    const data = await apiGet('/status');
+    const bindCount = Object.keys(data.bindings || {}).length;
+    isBound = bindCount > 0;
+    currentTerminalId = data.terminalId || null;
+    const dsArr = Object.values(data.deviceState || {});
+    if(dsArr[0]) { document.getElementById('st-a').textContent = dsArr[0].a; document.getElementById('st-b').textContent = dsArr[0].b; }
+    if(isBound) { setConnUI('bound', '已绑定'); log('ok', `App已绑定，惩罚电击就绪`); }
+    else { setConnUI('on', '等待App扫码'); log('ok', '服务端在线，请用郊狼App扫码绑定'); }
+  } catch(e) { setConnUI('', '离线'); log('err', `连接失败: ${e.message}`); }
+}
+
+async function pollStatus() {
+  if(!httpBase) return;
+  try {
+    const data = await apiGet('/status');
+    const bindCount = Object.keys(data.bindings || {}).length;
+    isBound = bindCount > 0;
+    const dsArr = Object.values(data.deviceState || {});
+    if(dsArr[0]) { document.getElementById('st-a').textContent = dsArr[0].a; document.getElementById('st-b').textContent = dsArr[0].b; }
+    if(isBound) setConnUI('bound', '已绑定');
+    else if(httpBase) setConnUI('on', '等待扫码');
+  } catch(e) {}
+}
+
+function setConnUI(cls, text) {
+  const dot = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+  const badge = document.getElementById('bind-badge');
+  dot.className = cls==='bound' ? 'bound' : (cls==='on' ? 'on' : '');
+  label.textContent = text.toUpperCase();
+  if(cls==='bound') { badge.className='badge badge-ok'; badge.textContent='✓ App已绑定'; }
+  else if(cls==='on') { badge.className='badge badge-wait'; badge.textContent='等待App扫码'; }
+  else { badge.className='badge badge-err'; badge.textContent='未连接'; }
+}
+
+function getWaveFrames() {
+  if(customWaveFrames && customWaveFrames.length) return customWaveFrames;
+  return WAVES[selectedWaveIdx].frames();
+}
+
+async function triggerPunishment() {
+  if(!isBound) { log('err', '未绑定设备，无法电击惩罚'); document.getElementById('shock-notice').textContent = '⚠ 设备未绑定 无电击'; return; }
+  const a = parseInt(document.getElementById('sl-a').value);
+  const b = parseInt(document.getElementById('sl-b').value);
+  const dur = parseInt(document.getElementById('shock-dur').value);
+  log('send', `⚡ 惩罚电击触发 A=${a} B=${b} 时长=${dur}ms`);
+  const bar = document.getElementById('shock-bar');
+  bar.textContent = `⚡ 电击惩罚中 A:${a} B:${b}`;
+  bar.classList.add('active');
+
+  await sendCmd(`strength-${a}+${b}+3+3`);
+  const frames = getWaveFrames();
+  const hexArr = frames.map(f=>`"${f}"`).join(',');
+  await sendCmd(`pulse-a:[${hexArr}]`);
+  await sendCmd(`pulse-b:[${hexArr}]`);
+
+  setTimeout(async()=>{
+    await sendCmd('strength-0+0+3+3');
+    await sendCmd('clear-a');
+    await sendCmd('clear-b');
+    bar.textContent = '⚡ 电击就绪';
+    bar.classList.remove('active');
+    log('ok', '惩罚结束，已归零');
+  }, dur);
+}
+
+async function manualShock() { await triggerPunishment(); }
+async function emergencyStop() { await sendCmd('strength-0+0+3+3'); await sendCmd('clear-a'); await sendCmd('clear-b'); document.getElementById('shock-bar').textContent='⛔ 紧急停止'; setTimeout(()=>{ if(!document.getElementById('shock-bar').classList.contains('active')) document.getElementById('shock-bar').textContent='⚡ 电击就绪'; },800); log('ok','紧急停止'); }
+
+function nudgeStrength(ch, delta) {
+  const sl = document.getElementById(`sl-${ch}`);
+  let v = parseInt(sl.value) + delta;
+  v = Math.min(200, Math.max(0, v));
+  sl.value = v;
+  document.getElementById(`vl-${ch}`).textContent = v;
+}
+
+function renderWaveGrid() {
+  const grid = document.getElementById('wave-grid');
+  grid.innerHTML = '';
+  WAVES.forEach((w,idx)=>{
+    const btn = document.createElement('div');
+    btn.className = `wave-btn ${idx===selectedWaveIdx ? 'active' : ''}`;
+    btn.innerHTML = `${w.name}<div style="font-size:7px; opacity:0.6;">${w.desc}</div>`;
+    btn.onclick = () => {
+      selectedWaveIdx = idx;
+      customWaveFrames = null;
+      document.getElementById('wave-import').value = '';
+      document.querySelectorAll('.wave-btn').forEach((b,i)=>b.classList.toggle('active', i===idx));
+      log('info', `切换波形: ${w.name}`);
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function importWave() {
+  const raw = document.getElementById('wave-import').value.trim();
+  const lines = raw.split(/\n+/).map(l=>l.trim()).filter(l=>l.length>0);
+  if(!lines.length) { log('err','无有效帧'); return; }
+  customWaveFrames = lines;
+  document.querySelectorAll('.wave-btn').forEach(b=>b.classList.remove('active'));
+  log('ok', `导入自定义波形 ${lines.length} 帧`);
+}
+
+function clearWave() { sendCmd('clear-a'); sendCmd('clear-b'); customWaveFrames=null; log('info','波形已清除'); }
+function log(type, msg) { const box=document.getElementById('log'); const ts=new Date().toLocaleTimeString(); const d=document.createElement('div'); d.className='le'; d.innerHTML=`<span class="lt">${ts}</span><span class="lm l${type}">${String(msg).replace(/[&<>]/g,function(m){return m==='&'?'&amp;':m==='<'?'&lt;':'&gt;';})}</span>`; box.appendChild(d); box.scrollTop=box.scrollHeight; if(box.children.length>70) box.removeChild(box.firstChild); }
+function clearLog() { document.getElementById('log').innerHTML=''; }
+
+// ---------- 贪吃蛇游戏 ----------
+const canvas = document.getElementById('snakeCanvas');
+const ctx = canvas.getContext('2d');
+const SIZE = 20; // 单元格20px
+const GRID_W = 35, GRID_H = 25; // 700/20, 500/20
+let snake = [[17,12],[16,12],[15,12]];
+let dir = [1,0]; let nextDir = [1,0];
+let food = [25,12];
+let gameState = 'start'; // start, running, dead
+let score = 0, hiScore = localStorage.getItem('snakeHi') ? parseInt(localStorage.getItem('snakeHi')) : 0;
+let gameLoopInterval = null;
+let baseSpeed = 150; // ms
+let speedStep = 2.5;
+document.getElementById('hud-hi').textContent = `HI ${hiScore}`;
+
+function randomFood() {
+  let newPos;
+  do { newPos = [Math.floor(Math.random()*GRID_W), Math.floor(Math.random()*GRID_H)]; } while(snake.some(seg=>seg[0]===newPos[0]&&seg[1]===newPos[1]));
+  food = newPos;
+}
+
+function updateGame() {
+  if(gameState !== 'running') return;
+  dir = [...nextDir];
+  const head = snake[0];
+  const newHead = [head[0]+dir[0], head[1]+dir[1]];
+  // 墙壁碰撞
+  if(newHead[0] < 0 || newHead[0] >= GRID_W || newHead[1] < 0 || newHead[1] >= GRID_H) { gameOver(); return; }
+  // 自身碰撞
+  if(snake.some((seg,i)=>i!==0 && seg[0]===newHead[0] && seg[1]===newHead[1])) { gameOver(); return; }
+
+  snake.unshift(newHead);
+  const ate = (newHead[0]===food[0] && newHead[1]===food[1]);
+  if(ate) {
+    score++;
+    document.getElementById('hud-score').textContent = score;
+    if(score > hiScore) { hiScore=score; localStorage.setItem('snakeHi', hiScore); document.getElementById('hud-hi').textContent = `HI ${hiScore}`; }
+    randomFood();
+    // 难度增加: 速度变快 (上限70ms)
+    let newDelay = Math.max(70, baseSpeed - Math.floor(score / 8) * 4);
+    if(gameLoopInterval) { clearInterval(gameLoopInterval); gameLoopInterval = setInterval(updateGame, newDelay); }
+  } else {
+    snake.pop();
+  }
+  drawCanvas();
+}
+
+function gameOver() {
+  if(gameState !== 'running') return;
+  gameState = 'dead';
+  if(gameLoopInterval) { clearInterval(gameLoopInterval); gameLoopInterval = null; }
+  document.getElementById('dead-score').textContent = score;
+  document.getElementById('ov-dead').classList.remove('hidden');
+  const flash = document.getElementById('death-flash');
+  flash.classList.add('on'); setTimeout(()=>flash.classList.remove('on'), 180);
+  // 触发惩罚电击
+  triggerPunishment().catch(e=>log('err','电击异常'));
+  const noticeDiv = document.getElementById('shock-notice');
+  noticeDiv.textContent = isBound ? '⚡ 电击惩罚中 ⚡' : '⚠ 未连接设备 无电击';
+  if(!isBound) noticeDiv.style.color = 'var(--neon-y)';
+}
+
+function startGame() {
+  if(gameLoopInterval) clearInterval(gameLoopInterval);
+  snake = [[17,12],[16,12],[15,12]];
+  dir = [1,0]; nextDir = [1,0];
+  score = 0;
+  document.getElementById('hud-score').textContent = '0';
+  gameState = 'running';
+  randomFood();
+  drawCanvas();
+  let initDelay = Math.max(70, baseSpeed);
+  gameLoopInterval = setInterval(updateGame, initDelay);
+  document.getElementById('ov-start').classList.add('hidden');
+  document.getElementById('ov-dead').classList.add('hidden');
+}
+
+function drawCanvas() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // 网格
+  ctx.strokeStyle = '#1e2538';
+  ctx.lineWidth = 0.5;
+  for(let i=0;i<=GRID_W;i++){ ctx.beginPath(); ctx.moveTo(i*SIZE,0); ctx.lineTo(i*SIZE,canvas.height); ctx.stroke(); }
+  for(let i=0;i<=GRID_H;i++){ ctx.beginPath(); ctx.moveTo(0,i*SIZE); ctx.lineTo(canvas.width,i*SIZE); ctx.stroke(); }
+  // 食物
+  ctx.fillStyle = '#f5e642';
+  ctx.shadowBlur = 8; ctx.shadowColor = '#f5e642';
+  ctx.fillRect(food[0]*SIZE+2, food[1]*SIZE+2, SIZE-4, SIZE-4);
+  // 蛇
+  ctx.fillStyle = '#00f5ff';
+  ctx.shadowBlur = 5;
+  for(let seg of snake) { ctx.fillRect(seg[0]*SIZE+2, seg[1]*SIZE+2, SIZE-4, SIZE-4); }
+  ctx.fillStyle = '#ff2d78';
+  ctx.fillRect(snake[0][0]*SIZE+2, snake[0][1]*SIZE+2, SIZE-4, SIZE-4);
+  ctx.shadowBlur = 0;
+}
+
+// 键盘控制
+document.addEventListener('keydown', (e) => {
+  const key = e.key;
+  if(key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') e.preventDefault();
+  if((gameState === 'start' || gameState === 'dead') && (key === ' ' || key === 'ArrowUp')) { startGame(); return; }
+  if(gameState !== 'running') return;
+  if(key === 'ArrowUp' && dir[1] !== 1) nextDir = [0,-1];
+  else if(key === 'ArrowDown' && dir[1] !== -1) nextDir = [0,1];
+  else if(key === 'ArrowLeft' && dir[0] !== 1) nextDir = [-1,0];
+  else if(key === 'ArrowRight' && dir[0] !== -1) nextDir = [1,0];
+});
+canvas.addEventListener('pointerdown', (e)=>{ if(gameState==='start'||gameState==='dead') startGame(); });
+window.addEventListener('load', () => {
+  drawCanvas();
+  renderWaveGrid();
+  setInterval(pollStatus, 3000);
+  document.getElementById('connBtn').onclick = testConnection;
+  document.getElementById('manualShockBtn').onclick = manualShock;
+  document.getElementById('emergencyStopBtn').onclick = emergencyStop;
+  document.getElementById('refreshStatusBtn').onclick = pollStatus;
+  document.getElementById('importWaveBtn').onclick = importWave;
+  document.getElementById('clearWaveBtn').onclick = clearWave;
+  document.getElementById('clearLogBtn').onclick = clearLog;
+  document.getElementById('sl-a').addEventListener('input',(e)=>document.getElementById('vl-a').textContent=e.target.value);
+  document.getElementById('sl-b').addEventListener('input',(e)=>document.getElementById('vl-b').textContent=e.target.value);
+  log('info', '贪吃蛇惩罚版启动，连接DG-LAB后死亡即电击');
+});
+</script>
+</body>
+</html>

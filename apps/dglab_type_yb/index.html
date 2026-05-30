@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PINYIN SHOCK TRAINER - Real-Time Detection</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #06080f;
+            --surface: #0d1117;
+            --border: #1a2035;
+            --neon-a: #00f5ff;
+            --neon-b: #ff2d78;
+            --neon-y: #f5e642;
+            --neon-g: #39ff6e;
+            --muted: #3a4560;
+            --text: #b8c8e8;
+            --mono: 'Share Tech Mono', monospace;
+            --pixel: 'Press Start 2P', monospace;
+            --title: 'Orbitron', sans-serif;
+            --panel-w: 320px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; background: var(--bg); }
+        body { display: flex; font-family: var(--mono); color: var(--text); }
+
+        /* scanline effect */
+        body::after {
+            content: '';
+            position: fixed; inset: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,.12) 3px, rgba(0,0,0,.12) 4px);
+            pointer-events: none; z-index: 9999;
+        }
+
+        /* ================= GAME AREA ================= */
+        #game-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            background: radial-gradient(ellipse at 50% 60%, #0a1020 0%, #06080f 70%);
+        }
+
+        /* grid background */
+        #game-area::before {
+            content: '';
+            position: absolute; inset: 0;
+            background-image:
+                linear-gradient(rgba(0,245,255,.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,245,255,.04) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: grid-scroll 8s linear infinite;
+        }
+        @keyframes grid-scroll { to { background-position: 0 40px; } }
+
+        /* horizon glow */
+        #game-area::after {
+            content: '';
+            position: absolute;
+            bottom: 140px; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--neon-a) 30%, var(--neon-b) 70%, transparent);
+            box-shadow: 0 0 20px var(--neon-a), 0 0 40px rgba(0,245,255,.3);
+        }
+
+        /* HUD */
+        #hud {
+            position: absolute; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 20px;
+            font-family: var(--title); font-size: 12px; letter-spacing: .15em;
+            border-bottom: 1px solid var(--border);
+            background: rgba(6,8,15,.8);
+            backdrop-filter: blur(4px);
+            z-index: 10;
+        }
+        .hud-logo { color: var(--neon-a); font-weight: 900; font-size: 14px; text-shadow: 0 0 20px var(--neon-a); }
+        .hud-score { color: var(--neon-y); font-size: 13px; text-shadow: 0 0 10px var(--neon-y); }
+        .hud-hi { color: var(--muted); font-size: 11px; }
+        #conn-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+            display: inline-block; margin-right: 6px;
+            transition: background .3s;
+        }
+        #conn-dot.on { background: var(--neon-g); box-shadow: 0 0 8px var(--neon-g); animation: blink 1.6s infinite; }
+        #conn-dot.bound { background: var(--neon-y); box-shadow: 0 0 8px var(--neon-y); animation: blink 1s infinite; }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+        #conn-label { font-size: 10px; letter-spacing: .1em; }
+
+        /* typing card */
+        #typing-card {
+            width: 800px; max-width: 90vw;
+            background: rgba(12, 15, 25, 0.78);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(0, 245, 255, 0.35);
+            border-radius: 20px;
+            padding: 30px 40px;
+            box-shadow: 0 25px 45px rgba(0,0,0,0.6), 0 0 20px rgba(0,245,255,0.2);
+            z-index: 10;
+            position: relative;
+        }
+        .card-title {
+            font-family: var(--title); font-size: 10px; letter-spacing: 2px;
+            color: var(--neon-a); border-left: 3px solid var(--neon-b);
+            padding-left: 12px; margin-bottom: 20px;
+        }
+        /* 修改：汉字显示区域 - 添加滚动条控制 */
+        #chinese-display {
+            font-size: 24px; line-height: 1.6; color: #cbd6ff;
+            font-family: var(--mono); margin-bottom: 25px;
+            padding-bottom: 15px; border-bottom: 1px dashed rgba(0,245,255,0.2);
+            min-height: 120px; word-break: break-word;
+            overflow-y: hidden; /* 默认隐藏滚动条 */
+            max-height: 168px; /* 7行的高度 (24px * 1.6 * 7 ≈ 268.8px，这里取168px为内容区域) */
+        }
+        #chinese-display.scrollable {
+            overflow-y: auto; /* 超过7行时显示滚动条 */
+        }
+        #chinese-display::-webkit-scrollbar {
+            width: 4px;
+        }
+        #chinese-display::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+            border-radius: 2px;
+        }
+        #chinese-display::-webkit-scrollbar-thumb {
+            background: var(--neon-a);
+            border-radius: 2px;
+        }
+        .current-target {
+            background: rgba(0,245,255,0.1);
+            border-radius: 12px; padding: 12px 18px; margin: 15px 0;
+        }
+        .pinyin-label {
+            font-size: 10px; color: var(--muted); margin-bottom: 6px;
+            font-family: var(--title); letter-spacing: 1px;
+        }
+        /* 修改：拼音显示区域 - 限制最多16字符 */
+        #current-pinyin {
+            font-size: 28px; font-weight: bold; color: var(--neon-a);
+            text-shadow: 0 0 5px var(--neon-a); font-family: var(--mono);
+            word-break: break-all; /* 允许长单词换行 */
+            max-width: 100%; /* 确保不超过容器宽度 */
+        }
+        /* 拼音字符限制样式 */
+        .pinyin-char {
+            display: inline-block;
+            transition: all 0.1s;
+        }
+        .pinyin-char.correct {
+            color: var(--neon-g);
+        }
+        .pinyin-char.wrong {
+            color: var(--neon-b);
+            text-shadow: 0 0 8px var(--neon-b);
+        }
+        .pinyin-char.current {
+            background: rgba(0,245,255,0.1);
+            padding: 0 2px;
+            border-radius: 4px;
+        }
+        #input-area {
+            margin-top: 20px; display: flex; gap: 12px; align-items: center;
+        }
+        #user-input {
+            flex: 1;
+            background: #06080f; border: 1px solid var(--border);
+            padding: 14px 20px; font-family: var(--mono); font-size: 20px;
+            color: var(--neon-g); border-radius: 60px; outline: none;
+            transition: all 0.2s; letter-spacing: 1px;
+        }
+        #user-input:focus {
+            border-color: var(--neon-a);
+            box-shadow: 0 0 14px rgba(0,245,255,0.3);
+        }
+        #progress-info {
+            font-family: var(--mono); font-size: 12px; color: var(--muted);
+            white-space: nowrap;
+        }
+        .mistake-indicator {
+            margin-top: 18px; font-size: 10px; color: var(--neon-b);
+            font-family: var(--title); display: flex; gap: 15px; align-items: center;
+        }
+
+        /* overlay screens */
+        .overlay {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 18px;
+            background: rgba(6,8,15,.85);
+            backdrop-filter: blur(2px);
+            z-index: 20;
+            font-family: var(--title);
+        }
+        .overlay.hidden { display: none; }
+        .ov-title {
+            font-size: 22px; font-weight: 900; letter-spacing: .2em;
+            color: var(--neon-a);
+            text-shadow: 0 0 30px var(--neon-a), 0 0 60px rgba(0,245,255,.4);
+            animation: title-pulse 2s ease-in-out infinite;
+        }
+        @keyframes title-pulse { 0%,100% { text-shadow: 0 0 30px var(--neon-a); } 50% { text-shadow: 0 0 60px var(--neon-a), 0 0 100px rgba(0,245,255,.6); } }
+        .ov-sub { font-size: 9px; color: var(--muted); letter-spacing: .2em; }
+        .ov-prompt {
+            font-size: 9px; color: var(--neon-y); letter-spacing: .15em;
+            animation: blink 1s infinite;
+        }
+        .ov-score-big { font-size: 28px; color: var(--neon-b); text-shadow: 0 0 20px var(--neon-b); font-weight: 900; }
+        .ov-btn {
+            background: none; border: 2px solid var(--neon-a);
+            padding: 10px 30px; color: var(--neon-a); font-family: var(--title);
+            font-weight: bold; cursor: pointer; transition: 0.2s; border-radius: 60px;
+            font-size: 10px; letter-spacing: 1px;
+        }
+        .ov-btn:hover {
+            background: var(--neon-a); color: #000; box-shadow: 0 0 18px var(--neon-a);
+        }
+
+        /* punishment flash */
+        #punish-flash {
+            position: absolute; inset: 0;
+            background: radial-gradient(circle, rgba(255,45,120,0.55) 0%, rgba(255,45,120,0) 80%);
+            pointer-events: none; opacity: 0; transition: opacity 0.08s; z-index: 30;
+        }
+        #punish-flash.active { opacity: 1; }
+
+        /* ================= PANEL ================= */
+        #panel {
+            width: var(--panel-w);
+            height: 100%;
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        #panel-scroll { flex: 1; overflow-y: auto; padding: 0; }
+        #panel-scroll::-webkit-scrollbar { width: 3px; }
+        #panel-scroll::-webkit-scrollbar-thumb { background: var(--border); }
+
+        .p-section {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 16px;
+        }
+        .p-section:last-child { border-bottom: none; }
+
+        .p-header {
+            font-family: var(--title); font-size: 9px; letter-spacing: .2em;
+            color: var(--muted); text-transform: uppercase; margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .p-header::before { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+        /* panel title bar */
+        #panel-title {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(0,245,255,.04);
+            flex-shrink: 0;
+        }
+        #panel-title h2 {
+            font-family: var(--title); font-weight: 900; font-size: 13px;
+            color: var(--neon-a); letter-spacing: .15em;
+            text-shadow: 0 0 15px rgba(0,245,255,.5);
+        }
+        #panel-title p { font-size: 10px; color: var(--muted); margin-top: 4px; letter-spacing: .05em; }
+
+        /* field */
+        .field { margin-bottom: 10px; }
+        .field label { display: block; font-size: 10px; color: var(--muted); letter-spacing: .1em; margin-bottom: 5px; }
+        .field input[type=text], .field input[type=number] {
+            width: 100%; background: var(--bg); border: 1px solid var(--border);
+            color: var(--text); font-family: var(--mono); font-size: 12px;
+            padding: 7px 9px; border-radius: 2px; outline: none;
+            transition: border-color .2s;
+        }
+        .field input:focus { border-color: var(--neon-a); }
+
+        /* buttons */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+            padding: 7px 13px; border-radius: 2px;
+            font-family: var(--title); font-size: 9px; letter-spacing: .12em;
+            border: 1px solid currentColor; background: transparent;
+            cursor: pointer; transition: background .15s, color .15s, box-shadow .15s;
+            user-select: none;
+        }
+        .btn:active { transform: scale(.97); }
+        .btn-cyan { color: var(--neon-a); }
+        .btn-cyan:hover { background: var(--neon-a); color: var(--bg); box-shadow: 0 0 15px var(--neon-a); }
+        .btn-pink { color: var(--neon-b); }
+        .btn-pink:hover { background: var(--neon-b); color: #fff; box-shadow: 0 0 15px var(--neon-b); }
+        .btn-yellow { color: var(--neon-y); }
+        .btn-yellow:hover { background: var(--neon-y); color: var(--bg); box-shadow: 0 0 15px var(--neon-y); }
+        .btn-green { color: var(--neon-g); }
+        .btn-green:hover { background: var(--neon-g); color: var(--bg); box-shadow: 0 0 15px var(--neon-g); }
+        .btn-full { width: 100%; margin-bottom: 6px; }
+        .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn-sm { padding: 5px 9px; font-size: 8px; }
+
+        /* status badge */
+        .badge {
+            display: inline-block; padding: 3px 8px; border-radius: 2px;
+            font-size: 9px; letter-spacing: .08em; font-family: var(--title);
+        }
+        .badge-ok { background: rgba(57,255,110,.12); color: var(--neon-g); border: 1px solid rgba(57,255,110,.3); }
+        .badge-wait { background: rgba(0,245,255,.08); color: var(--neon-a); border: 1px solid rgba(0,245,255,.2); }
+        .badge-err { background: rgba(255,45,120,.12); color: var(--neon-b); border: 1px solid rgba(255,45,120,.3); }
+
+        /* channel sliders */
+        .ch-row { display: grid; grid-template-columns: 28px 1fr 44px; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .ch-label { font-size: 11px; font-weight: bold; }
+        .ch-label.a { color: var(--neon-a); }
+        .ch-label.b { color: var(--neon-b); }
+        .ch-slider {
+            -webkit-appearance: none; appearance: none;
+            height: 4px; border-radius: 2px; outline: none;
+            background: var(--border); width: 100%;
+        }
+        .ch-slider.a::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--neon-a); cursor: pointer; box-shadow: 0 0 6px var(--neon-a); }
+        .ch-slider.b::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--neon-b); cursor: pointer; box-shadow: 0 0 6px var(--neon-b); }
+        .ch-val { font-size: 13px; font-family: var(--title); text-align: right; }
+        .ch-val.a { color: var(--neon-a); }
+        .ch-val.b { color: var(--neon-b); }
+
+        /* waveform selector */
+        .wave-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .wave-btn {
+            padding: 8px 6px; border: 1px solid var(--border); border-radius: 2px;
+            background: var(--bg); color: var(--text);
+            font-family: var(--title); font-size: 8px; letter-spacing: .06em;
+            cursor: pointer; text-align: center;
+            transition: border-color .15s, background .15s, color .15s;
+        }
+        .wave-btn:hover { border-color: var(--neon-a); color: var(--neon-a); }
+        .wave-btn.active { border-color: var(--neon-a); background: rgba(0,245,255,.1); color: var(--neon-a); box-shadow: 0 0 8px rgba(0,245,255,.2); }
+        .wave-desc { font-size: 8px; color: var(--muted); margin-top: 2px; }
+
+        /* import area */
+        #wave-import {
+            width: 100%; height: 56px; resize: none;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--neon-g); font-family: var(--mono); font-size: 10px;
+            padding: 7px; border-radius: 2px; outline: none;
+            transition: border-color .2s;
+        }
+        #wave-import:focus { border-color: var(--neon-g); }
+
+        /* log */
+        #log {
+            height: 110px; overflow-y: auto;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 2px; padding: 8px;
+            font-size: 10px; line-height: 1.8;
+        }
+        #log::-webkit-scrollbar { width: 2px; }
+        #log::-webkit-scrollbar-thumb { background: var(--border); }
+        .le { display: flex; gap: 8px; }
+        .lt { color: var(--muted); flex-shrink: 0; font-size: 9px; }
+        .lm { word-break: break-all; }
+        .lsend { color: var(--neon-y); }
+        .lrecv { color: var(--neon-a); }
+        .lerr { color: var(--neon-b); }
+        .lok { color: var(--neon-g); }
+        .linfo { color: var(--text); }
+
+        /* shock notice */
+        #shock-bar {
+            padding: 10px 16px;
+            background: rgba(255,45,120,.08);
+            border-top: 1px solid rgba(255,45,120,.2);
+            font-family: var(--title); font-size: 9px;
+            color: var(--neon-b); letter-spacing: .1em;
+            text-align: center; flex-shrink: 0;
+            min-height: 36px;
+            transition: background .3s;
+        }
+        #shock-bar.active {
+            background: rgba(255,45,120,.25);
+            animation: shock-pulse .3s infinite;
+        }
+        @keyframes shock-pulse { 0%,100% { background: rgba(255,45,120,.25); } 50% { background: rgba(255,45,120,.1); } }
+    </style>
+</head>
+<body>
+
+<!-- ================= GAME AREA ================= -->
+<div id="game-area">
+    <div id="punish-flash"></div>
+
+    <div id="hud">
+        <div class="hud-logo">⚡ PINYIN SHOCK TRAINER</div>
+        <div style="display: flex; align-items: center; gap: 16px">
+            <span class="hud-hi" id="hud-hi">ACC 100%</span>
+            <span class="hud-score" id="hud-score">MISTAKES 0</span>
+        </div>
+        <div style="display: flex; align-items: center">
+            <span id="conn-dot"></span>
+            <span id="conn-label" style="font-family: var(--title); font-size: 9px; letter-spacing: .1em; color: var(--muted)">OFFLINE</span>
+        </div>
+    </div>
+
+    <div id="typing-card">
+        <div class="card-title">LOCAL CORPUS // source/english.txt + source/chinese.txt</div>
+        <!-- Chinese text display -->
+        <div id="chinese-display">Loading corpus...</div>
+        <!-- Current pinyin target -->
+        <div class="current-target">
+            <div class="pinyin-label">🎯 CURRENT WORD // TYPE PINYIN (real-time detection)</div>
+            <div id="current-pinyin">—</div>
+        </div>
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="example: jiangnan" autocomplete="off" autofocus>
+            <div id="progress-info">0 / 0</div>
+        </div>
+        <div class="mistake-indicator">
+            <span>⚡ REAL-TIME DETECTION // WRONG CHAR = INSTANT SHOCK + AUTO DELETE</span>
+        </div>
+    </div>
+
+    <!-- START overlay -->
+    <div class="overlay" id="ov-start">
+        <div class="ov-title">PINYIN SHOCK TRAINER</div>
+        <div class="ov-sub">DG-LAB × REAL-TIME TYPING</div>
+        <div class="ov-prompt">▶ PRESS SPACE / CLICK TO START</div>
+        <div style="font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: .08em">Real-time detection: wrong character = instant shock + auto delete</div>
+        <button class="ov-btn" id="start-btn">LOAD CORPUS & START</button>
+    </div>
+
+    <!-- COMPLETE overlay -->
+    <div class="overlay hidden" id="ov-complete">
+        <div style="font-family: var(--title); font-size: 11px; color: var(--neon-g); letter-spacing: .25em; text-shadow: 0 0 20px var(--neon-g)">COMPLETE</div>
+        <div class="ov-score-big" id="final-mistakes">0</div>
+        <div class="ov-prompt" id="complete-msg">ALL WORDS TYPED CORRECTLY</div>
+        <button class="ov-btn" id="restart-btn">RESTART</button>
+    </div>
+</div>
+
+<!-- ================= PANEL ================= -->
+<div id="panel">
+    <div id="panel-title">
+        <h2>DG-LAB CTRL</h2>
+        <p>Coyote Shock Control Panel</p>
+    </div>
+
+    <div id="panel-scroll">
+
+        <!-- Connection -->
+        <div class="p-section">
+            <div class="p-header">Connection</div>
+            <div class="field">
+                <label>HTTP API Address</label>
+                <input type="text" id="http-url" value="http://localhost:5679" placeholder="http://IP:5679">
+            </div>
+            <button class="btn btn-cyan btn-full" onclick="testConn()">Connect / Test</button>
+            <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px">
+                <span id="bind-badge" class="badge badge-wait">Waiting Bind</span>
+                <span id="bind-detail" style="font-size: 9px; color: var(--muted)"></span>
+            </div>
+        </div>
+
+        <!-- Shock Intensity -->
+        <div class="p-section">
+            <div class="p-header">Punishment Intensity</div>
+            <div class="ch-row">
+                <span class="ch-label a">A</span>
+                <input type="range" min="0" max="200" value="20" class="ch-slider a" id="sl-a"
+                    oninput="document.getElementById('vl-a').textContent = this.value">
+                <span class="ch-val a" id="vl-a">20</span>
+            </div>
+            <div class="ch-row">
+                <span class="ch-label b">B</span>
+                <input type="range" min="0" max="200" value="10" class="ch-slider b" id="sl-b"
+                    oninput="document.getElementById('vl-b').textContent = this.value">
+                <span class="ch-val b" id="vl-b">10</span>
+            </div>
+            <div class="btn-row" style="margin-top: 4px">
+                <button class="btn btn-sm btn-cyan" onclick="nudge('a',5)">A+5</button>
+                <button class="btn btn-sm btn-cyan" onclick="nudge('a',-5)">A−5</button>
+                <button class="btn btn-sm btn-pink" onclick="nudge('b',5)">B+5</button>
+                <button class="btn btn-sm btn-pink" onclick="nudge('b',-5)">B−5</button>
+            </div>
+            <div style="margin-top: 10px">
+                <div class="field">
+                    <label>Shock Duration (ms)</label>
+                    <input type="number" id="shock-dur" value="1500" min="100" max="5000" step="100">
+                </div>
+            </div>
+            <button class="btn btn-pink btn-full" style="margin-top: 4px" onclick="manualShock()">⚡ Manual Test Shock</button>
+        </div>
+
+        <!-- Waveform -->
+        <div class="p-section">
+            <div class="p-header">Waveform</div>
+            <div class="wave-grid" id="wave-grid"></div>
+            <div style="margin-top: 10px">
+                <div style="font-family: var(--title); font-size: 9px; color: var(--muted); letter-spacing: .1em; margin-bottom: 6px">▸ Import Custom HEX</div>
+                <textarea id="wave-import" placeholder='One frame per line, hex, e.g.:&#10;1E9082B46464646464646464646464640000FF00&#10;14508000000000000000000000000000FFFFFF00'></textarea>
+                <button class="btn btn-green btn-full btn-sm" style="margin-top: 6px" onclick="importWave()">Import & Apply</button>
+            </div>
+            <div style="margin-top: 6px" class="btn-row">
+                <button class="btn btn-sm" style="color: var(--muted); border-color: var(--border)" onclick="clearWave()">Clear Wave</button>
+            </div>
+        </div>
+
+        <!-- Device Status -->
+        <div class="p-section">
+            <div class="p-header">Device Status</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px">
+                <div>
+                    <div style="color: var(--muted); font-size: 9px; margin-bottom: 3px">Channel A</div>
+                    <div id="st-a" style="color: var(--neon-a); font-size: 20px; font-family: var(--title)">--</div>
+                </div>
+                <div>
+                    <div style="color: var(--muted); font-size: 9px; margin-bottom: 3px">Channel B</div>
+                    <div id="st-b" style="color: var(--neon-b); font-size: 20px; font-family: var(--title)">--</div>
+                </div>
+            </div>
+            <div style="margin-top: 6px">
+                <button class="btn btn-sm" style="color: var(--muted); border-color: var(--border)" onclick="pollStatus()">Refresh</button>
+                <button class="btn btn-sm btn-pink" style="margin-left: 6px" onclick="emergencyStop()">⛔ Emergency Stop</button>
+            </div>
+        </div>
+
+        <!-- Log -->
+        <div class="p-section">
+            <div class="p-header" style="margin-bottom: 8px">
+                Event Log
+                <button class="btn btn-sm" style="color: var(--muted); border-color: var(--border); margin-left: auto" onclick="clearLog()">Clear</button>
+            </div>
+            <div id="log"></div>
+        </div>
+
+    </div><!-- /panel-scroll -->
+
+    <div id="shock-bar">⚡ Shock Ready</div>
+</div><!-- /panel -->
+
+<script>
+// ===========================================================================
+//  TYPING GAME LOGIC - REAL-TIME CHARACTER DETECTION
+// ===========================================================================
+let wordBank = [];           // { pinyin: "xxx", chinese: "xxx" }
+let currentIndex = 0;
+let mistakeCount = 0;
+let gameActive = false;
+let totalWords = 0;
+let chineseDisplay = "";
+
+// Load corpus from source/ directory
+async function loadCorpus() {
+    log('info', 'Loading source/english.txt and source/chinese.txt...');
+    try {
+        const engResp = await fetch('./source/english.txt');
+        const chiResp = await fetch('./source/chinese.txt');
+        if (!engResp.ok || !chiResp.ok) throw new Error('Corpus files missing. Ensure source/ directory contains both .txt files.');
+        const engText = await engResp.text();
+        const chiText = await chiResp.text();
+        const engLines = engText.split(/\r?\n/).filter(l => l.trim().length > 0);
+        const chiLines = chiText.split(/\r?\n/).filter(l => l.trim().length > 0);
+        const minLen = Math.min(engLines.length, chiLines.length);
+        if (minLen === 0) throw new Error('Files are empty.');
+        wordBank = [];
+        for (let i = 0; i < minLen; i++) {
+            wordBank.push({
+                pinyin: engLines[i].trim().toLowerCase(),
+                chinese: chiLines[i].trim()
+            });
+        }
+        totalWords = wordBank.length;
+        chineseDisplay = wordBank.map(w => w.chinese).join('');
+        log('ok', `Loaded ${totalWords} word pairs`);
+        console.log('Loaded word bank:', wordBank);
+        return true;
+    } catch (error) {
+        log('err', 'Corpus load failed: ' + error.message);
+        alert('Failed to load corpus:\n' + error.message + '\n\nMake sure:\n1. source/ folder exists\n2. english.txt and chinese.txt are not empty\n3. Running via local server (e.g., Live Server)');
+        return false;
+    }
+}
+
+function startGame() {
+    if (wordBank.length === 0) {
+        alert('No corpus loaded.');
+        return;
+    }
+    currentIndex = 0;
+    mistakeCount = 0;
+    gameActive = true;
+    updateHUD();
+    updateDisplay();
+    document.getElementById('user-input').value = '';
+    document.getElementById('user-input').focus();
+    document.getElementById('ov-start').classList.add('hidden');
+    document.getElementById('ov-complete').classList.add('hidden');
+    log('info', 'Game started. Total words: ' + totalWords);
+}
+
+function updateHUD() {
+    const totalTyped = currentIndex;
+    const accuracy = totalTyped === 0 ? 100 : Math.max(0, Math.round((totalTyped - mistakeCount) / totalTyped * 100));
+    document.getElementById('hud-hi').textContent = `ACC ${accuracy}%`;
+    document.getElementById('hud-score').textContent = `MISTAKES ${mistakeCount}`;
+}
+
+function updateDisplay() {
+    if (currentIndex >= totalWords) {
+        gameActive = false;
+        document.getElementById('final-mistakes').textContent = mistakeCount;
+        document.getElementById('complete-msg').textContent = mistakeCount === 0 ? 'PERFECT RUN' : `MISTAKES: ${mistakeCount}`;
+        document.getElementById('ov-complete').classList.remove('hidden');
+        log('info', 'Game completed. Mistakes: ' + mistakeCount);
+        return;
+    }
+    const current = wordBank[currentIndex];
+
+    // 修改：拼音显示最多16字符
+    const displayPinyin = current.pinyin.length > 16 ? current.pinyin.substring(0, 13) + '...' : current.pinyin;
+    document.getElementById('current-pinyin').textContent = displayPinyin;
+
+    // 修改：汉字显示区域，检查是否需要滚动条
+    const chineseDisplayEl = document.getElementById('chinese-display');
+
+    // 计算汉字显示的行数
+    let displayHTML = '';
+    for (let i = 0; i < wordBank.length; i++) {
+        if (i === currentIndex) {
+            displayHTML += `<span style="color: var(--neon-y); text-decoration: underline; background: rgba(0,245,255,0.1); padding: 2px 4px; border-radius: 4px;">${wordBank[i].chinese}</span>`;
+        } else {
+            displayHTML += wordBank[i].chinese;
+        }
+    }
+
+    chineseDisplayEl.innerHTML = displayHTML;
+
+    // 检查是否需要滚动条（计算行数）
+    const lineHeight = 24 * 1.6; // fontSize * lineHeight
+    const maxHeight = 7 * lineHeight; // 7行的最大高度
+
+    // 获取实际高度
+    const actualHeight = chineseDisplayEl.scrollHeight;
+
+    // 如果实际高度超过最大高度，添加滚动条
+    if (actualHeight > maxHeight) {
+        chineseDisplayEl.classList.add('scrollable');
+        chineseDisplayEl.style.maxHeight = `${maxHeight}px`;
+    } else {
+        chineseDisplayEl.classList.remove('scrollable');
+        chineseDisplayEl.style.maxHeight = 'none';
+    }
+
+    document.getElementById('progress-info').textContent = `${currentIndex + 1} / ${totalWords}`;
+}
+
+// REAL-TIME INPUT DETECTION
+function checkInputRealTime() {
+    if (!gameActive) return;
+
+    const input = document.getElementById('user-input').value.toLowerCase();
+    const current = wordBank[currentIndex];
+    const targetPinyin = current.pinyin;
+
+    // If input is empty, do nothing
+    if (input.length === 0) return;
+
+    // Character-by-character comparison
+    for (let i = 0; i < input.length; i++) {
+        if (i >= targetPinyin.length) {
+            // Input length exceeds target pinyin - ERROR
+            triggerMistake(input, i);
+            return;
+        }
+
+        if (input[i] !== targetPinyin[i]) {
+            // Character mismatch - ERROR
+            triggerMistake(input, i);
+            return;
+        }
+    }
+
+    // If input exactly matches target pinyin
+    if (input === targetPinyin) {
+        // Complete current word, move to next
+        setTimeout(() => {
+            currentIndex++;
+            document.getElementById('user-input').value = '';
+            updateHUD();
+            updateDisplay();
+            log('ok', `Correct: ${targetPinyin}`);
+        }, 100); // Small delay to show completion
+    }
+}
+
+// Trigger mistake handling
+function triggerMistake(input, errorIndex) {
+    mistakeCount++;
+    updateHUD();
+
+    // Delete all characters from the error point onward
+    const inputEl = document.getElementById('user-input');
+    const correctedInput = input.substring(0, errorIndex);
+    inputEl.value = correctedInput;
+
+    // Set cursor to end
+    inputEl.focus();
+    inputEl.setSelectionRange(correctedInput.length, correctedInput.length);
+
+    // Trigger shock punishment
+    triggerPunishment();
+
+    // Red flash effect
+    const flash = document.getElementById('punish-flash');
+    flash.classList.add('active');
+    setTimeout(() => flash.classList.remove('active'), 200);
+
+    const current = wordBank[currentIndex];
+    log('err', `Mistake at char ${errorIndex + 1}: expected "${current.pinyin[errorIndex]}", got "${input[errorIndex]}"`);
+}
+
+// ===========================================================================
+//  DG-LAB INTERFACE (identical to dinosaur template)
+// ===========================================================================
+let httpBase = 'http://localhost:5679';
+let isBound = false;
+let currentTerminalId = null;
+let selectedWaveIdx = 0;
+let customWaveFrames = null;
+
+const WAVES = [
+    { name: 'Continuous', desc: 'Steady output',
+      frames: () => ['1E9082B46464646464646464646464640000FF00',
+                     '1E9082B46464646464646464646464640000FF00',
+                     '1E9082B46464646464646464646464640000FF00',
+                     '1E9082B46464646464646464646464640000FF00'] },
+    { name: 'Pulse', desc: 'Rhythmic beat',
+      frames: () => ['14508000000000000000000000000000FFFFFF00',
+                     '0A508000000000000000000000000000FFFFFF00',
+                     '14508000000000000000000000000000FFFFFF00',
+                     '0A508000000000000000000000000000FFFFFF00'] },
+    { name: 'Breathing', desc: 'Fade in/out',
+      frames: () => [10,20,32,44].map(v => {
+          const h = v.toString(16).padStart(2,'0').toUpperCase();
+          return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+      }) },
+    { name: 'Wave', desc: 'Periodic',
+      frames: () => [8,24,40,24].map(v => {
+          const h = v.toString(16).padStart(2,'0').toUpperCase();
+          return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+      }) },
+    { name: 'Random', desc: 'Irregular',
+      frames: () => Array.from({length:4}, () => {
+          const v = Math.floor(Math.random() * 40 + 8);
+          const h = v.toString(16).padStart(2,'0').toUpperCase();
+          return `${h}5082B4${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}${h}0000FF00`;
+      }) },
+    { name: 'Strong Impact', desc: 'High intensity',
+      frames: () => ['3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                     '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                     '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00',
+                     '3C9082B43C3C3C3C3C3C3C3C3C3C3C3C3C3C3CFF00FF00'] },
+];
+
+async function apiGet(path) {
+    const url = httpBase.replace(/\/+$/, '') + path;
+    const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    return r.json();
+}
+
+async function apiPost(path, body) {
+    const url = httpBase.replace(/\/+$/, '') + path;
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(3000)
+    });
+    return r.json();
+}
+
+async function sendCmd(message) {
+    try {
+        const res = await apiPost('/cmd', { message });
+        if (res.ok) log('send', `→ ${message}`);
+        else log('err', `Send failed: ${res.error || 'unknown'}`);
+        return res.ok;
+    } catch (e) {
+        log('err', `HTTP error: ${e.message}`);
+        return false;
+    }
+}
+
+async function testConn() {
+    httpBase = document.getElementById('http-url').value.trim();
+    log('info', 'Testing connection ' + httpBase + '...');
+    try {
+        const data = await apiGet('/status');
+        isBound = Object.keys(data.bindings || {}).length > 0;
+        currentTerminalId = data.terminalId || null;
+        const ds = Object.values(data.deviceState || {})[0];
+        if (ds) {
+            document.getElementById('st-a').textContent = ds.a;
+            document.getElementById('st-b').textContent = ds.b;
+        }
+        if (isBound) {
+            setConnUI('bound', 'Bound');
+            log('ok', 'Connected, App bound');
+        } else {
+            setConnUI('on', 'Connected, wait App scan');
+            log('ok', 'Server connected, please scan with Coyote App');
+        }
+    } catch (e) {
+        setConnUI('', 'Offline');
+        log('err', 'Connection failed: ' + e.message);
+    }
+}
+
+async function pollStatus() {
+    try {
+        const data = await apiGet('/status');
+        isBound = Object.keys(data.bindings || {}).length > 0;
+        const ds = Object.values(data.deviceState || {})[0];
+        if (ds) {
+            document.getElementById('st-a').textContent = ds.a;
+            document.getElementById('st-b').textContent = ds.b;
+        }
+        if (isBound) setConnUI('bound', 'Bound');
+    } catch {}
+}
+
+function setConnUI(cls, text) {
+    const dot = document.getElementById('conn-dot');
+    const label = document.getElementById('conn-label');
+    const badge = document.getElementById('bind-badge');
+    dot.className = cls ? `on ${cls === 'bound' ? 'bound' : ''}` : '';
+    if (cls === 'bound') dot.className = 'bound';
+    else if (cls === 'on') dot.className = 'on';
+    else dot.className = '';
+    label.textContent = text.toUpperCase();
+    label.style.color = cls === 'bound' ? 'var(--neon-y)' : cls === 'on' ? 'var(--neon-g)' : 'var(--muted)';
+    if (cls === 'bound') {
+        badge.className = 'badge badge-ok';
+        badge.textContent = '✓ App Bound';
+    } else if (cls === 'on') {
+        badge.className = 'badge badge-wait';
+        badge.textContent = 'Wait App Scan';
+    } else {
+        badge.className = 'badge badge-err';
+        badge.textContent = 'Not Connected';
+    }
+}
+
+function getWaveFrames() {
+    if (customWaveFrames && customWaveFrames.length > 0) return customWaveFrames;
+    return WAVES[selectedWaveIdx].frames();
+}
+
+async function triggerPunishment() {
+    if (!isBound) {
+        log('info', 'Shock skipped (not bound)');
+        return;
+    }
+    const a = parseInt(document.getElementById('sl-a').value);
+    const b = parseInt(document.getElementById('sl-b').value);
+    const dur = parseInt(document.getElementById('shock-dur').value) || 1500;
+
+    log('send', `⚡ Punishment shock A=${a} B=${b} dur=${dur}ms`);
+    document.getElementById('shock-bar').textContent = `⚡ Shocking... A:${a} B:${b}`;
+    document.getElementById('shock-bar').classList.add('active');
+
+    // 1. Set strength
+    await sendCmd(`strength-${a}+${b}+3+3`);
+
+    // 2. Send waveform
+    const frames = getWaveFrames();
+    const hexArr = frames.map(f => `"${f}"`).join(',');
+    await sendCmd(`pulse-a:[${hexArr}]`);
+    await sendCmd(`pulse-b:[${hexArr}]`);
+
+    // 3. Wait and zero
+    setTimeout(async () => {
+        await sendCmd('strength-0+0+3+3');
+        await sendCmd('clear-a');
+        await sendCmd('clear-b');
+        document.getElementById('shock-bar').textContent = '⚡ Shock Ready';
+        document.getElementById('shock-bar').classList.remove('active');
+        log('ok', 'Punishment ended, zeroed');
+    }, dur);
+}
+
+async function manualShock() { await triggerPunishment(); }
+
+async function emergencyStop() {
+    await sendCmd('strength-0+0+3+3');
+    await sendCmd('clear-a');
+    await sendCmd('clear-b');
+    document.getElementById('shock-bar').textContent = '⛔ Emergency Stopped';
+    document.getElementById('shock-bar').classList.remove('active');
+    log('ok', 'Emergency stop executed');
+}
+
+function nudge(ch, val) {
+    const sl = document.getElementById('sl-' + ch);
+    const lbl = document.getElementById('vl-' + ch);
+    sl.value = Math.max(0, Math.min(200, parseInt(sl.value) + val));
+    lbl.textContent = sl.value;
+}
+
+function clearWave() {
+    sendCmd('clear-a'); sendCmd('clear-b');
+    customWaveFrames = null;
+    log('info', 'Waveform cleared');
+}
+
+function importWave() {
+    const raw = document.getElementById('wave-import').value.trim();
+    const lines = raw.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) { log('err', 'Import empty'); return; }
+    customWaveFrames = lines;
+    document.querySelectorAll('.wave-btn').forEach(b => b.classList.remove('active'));
+    log('ok', `Imported ${lines.length} custom wave frames`);
+}
+
+function renderWaveGrid() {
+    const grid = document.getElementById('wave-grid');
+    grid.innerHTML = '';
+    WAVES.forEach((w, i) => {
+        const btn = document.createElement('div');
+        btn.className = 'wave-btn' + (i === selectedWaveIdx ? ' active' : '');
+        btn.innerHTML = `${w.name}<div class="wave-desc">${w.desc}</div>`;
+        btn.onclick = () => {
+            selectedWaveIdx = i;
+            customWaveFrames = null;
+            document.getElementById('wave-import').value = '';
+            document.querySelectorAll('.wave-btn').forEach((b, j) => b.classList.toggle('active', j === i));
+        };
+        grid.appendChild(btn);
+    });
+}
+
+function log(type, msg) {
+    const box = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const el = document.createElement('div');
+    el.className = 'le';
+    el.innerHTML = `<span class="lt">${ts}</span><span class="lm l${type}">${esc(msg)}</span>`;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+    if (box.children.length > 80) box.removeChild(box.firstChild);
+}
+function clearLog() { document.getElementById('log').innerHTML = ''; }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ===========================================================================
+//  INIT & EVENT BINDING
+// ===========================================================================
+window.addEventListener('load', () => {
+    renderWaveGrid();
+    log('info', 'Control panel ready. Click "Connect / Test".');
+
+    // Load corpus on start button
+    document.getElementById('start-btn').addEventListener('click', async () => {
+        const success = await loadCorpus();
+        if (success) startGame();
+    });
+
+    // Restart button
+    document.getElementById('restart-btn').addEventListener('click', () => {
+        if (wordBank.length > 0) startGame();
+    });
+
+    // REAL-TIME INPUT DETECTION
+    const inputEl = document.getElementById('user-input');
+    inputEl.addEventListener('input', () => {
+        checkInputRealTime();
+    });
+
+    // Optional: Space/Enter to submit (if needed)
+    inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            // Real-time detection already handles everything
+        }
+    });
+
+    // Click on overlay to start
+    document.getElementById('ov-start').addEventListener('click', (e) => {
+        if (e.target.id === 'start-btn' || e.target.closest('#start-btn')) return;
+        document.getElementById('start-btn').click();
+    });
+
+    document.getElementById('ov-complete').addEventListener('click', (e) => {
+        if (e.target.id === 'restart-btn' || e.target.closest('#restart-btn')) return;
+        document.getElementById('restart-btn').click();
+    });
+
+    // Auto-connect on load (optional)
+    // testConn();
+});
+
+// Poll status every 3 seconds
+setInterval(pollStatus, 3000);
+</script>
+</body>
+</html>
